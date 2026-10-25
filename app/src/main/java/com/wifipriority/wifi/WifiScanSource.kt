@@ -48,6 +48,7 @@ class WifiScanSource(
             }
             val permitted = hasScanPermissions()
             if (!WifiScanGate.allow(wifiEnabled = true, hasPermissions = permitted, throttle = throttle)) {
+                emit(ScanSnapshot(emptySet(), clock.nowMillis(), wifiEnabled = true, fresh = false))
                 delay(intervalMillis)
                 continue
             }
@@ -61,6 +62,8 @@ class WifiScanSource(
                         securityBySsid = read.security,
                     ),
                 )
+            } else {
+                emit(ScanSnapshot(emptySet(), clock.nowMillis(), wifiEnabled = true, fresh = false))
             }
             delay(intervalMillis)
         }

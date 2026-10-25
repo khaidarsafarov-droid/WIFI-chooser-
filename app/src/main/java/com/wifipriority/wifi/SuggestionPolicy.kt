@@ -263,6 +263,11 @@ data class PolicyState(
     val lastFailureSsid: String? = null,
     val lastFailureReason: FailureReason? = null,
     val suggestionSignature: String = "",
+    /**
+     * True only after `WifiManager.getNetworkSuggestions()` contained the planned SSIDs.
+     * [suggestionSignature] is the plan we want, not proof the system stored it.
+     */
+    val suggestionsInSystem: Boolean = false,
 ) {
     fun expire(nowMillis: Long): PolicyState = copy(
         failureBackoffUntil = failureBackoffUntil?.takeIf { nowMillis < it },
@@ -298,6 +303,11 @@ enum class LogKind {
     PHONE_BACKOFF,
     DISCONNECT_RETRY,
     SUGGESTIONS_CHANGED,
+    SUGGESTION_STATUS,
+    APPROVAL,
+    SCAN,
+    DECISION,
+    PASSWORD_MISSING,
     WIFI_OFF,
     WIFI_ON,
     TARGET_PHONE,

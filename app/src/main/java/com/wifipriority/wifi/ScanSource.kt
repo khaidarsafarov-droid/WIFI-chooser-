@@ -15,6 +15,11 @@ data class ScanSnapshot(
     val wifiEnabled: Boolean = true,
     /** Security parsed from scan capabilities, keyed by SSID. Empty for mocks. */
     val securityBySsid: Map<String, WifiSecurity> = emptyMap(),
+    /**
+     * False when `startScan` was refused, the platform said results were not updated,
+     * or the app throttle skipped the scan. Those snapshots must not count as a miss.
+     */
+    val fresh: Boolean = true,
 )
 
 /**

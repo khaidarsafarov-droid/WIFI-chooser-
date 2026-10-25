@@ -166,6 +166,20 @@ class StatusViewModelTest {
         assertTrue(BannerId.CANNOT_CONNECT_PHONE in viewModel.banners.value)
     }
 
+    @Test
+    fun missingSuggestions_andBlankPassword_showBanners() {
+        env.config = enabledConfig(phonePassword = "")
+        val viewModel = AppViewModel(env)
+        env.status.value = PriorityStatus(
+            suggestionsMissing = true,
+            suggestionApproval = SuggestionApproval.PENDING,
+        )
+        viewModel.refreshSignals()
+        assertTrue(BannerId.SUGGESTIONS_MISSING in viewModel.banners.value)
+        assertTrue(BannerId.PASSWORD_MISSING in viewModel.banners.value)
+        assertTrue(BannerId.SUGGESTIONS in viewModel.banners.value)
+    }
+
     private class FakeEnvironment : AppEnvironment {
         var config = PriorityConfig()
         var signals = DeviceSignals()

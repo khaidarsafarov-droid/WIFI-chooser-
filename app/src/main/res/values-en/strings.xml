@@ -58,7 +58,9 @@
     <string name="banner_nearby">Nearby Wi-Fi permission is missing. Network names cannot be read.</string>
     <string name="banner_notifications">Notification permission is missing. The status notification will not show.</string>
     <string name="banner_location_off">Location is off. Turn it on or Android hides network names.</string>
-    <string name="banner_suggestions">Network suggestions are not approved. Allow them in Wi-Fi settings.</string>
+    <string name="banner_suggestions">Network suggestions are not approved. Tap the button while this app is on screen, then allow the system prompt.</string>
+    <string name="banner_suggestions_missing">Android is not holding this app\'s suggestions. The saved plan is not registration.</string>
+    <string name="banner_password_missing">Password is missing. A network without a password is not suggested.</string>
     <string name="banner_battery">Battery optimization is not exempted. Scans will stop without an exemption.</string>
     <string name="banner_service_disabled">Priority is paused. Turn it on in settings.</string>
     <string name="banner_auto_revoke">Android can revoke permissions if the app stays unused. Turn off “Pause app activity if unused”.</string>
@@ -68,6 +70,7 @@
     <string name="banner_samsung">Add this app to Never sleeping apps: Battery and device care → Battery → Background usage limits. Otherwise the scan stops while the tablet is unattended.</string>
     <string name="action_open_wifi">Open Wi-Fi</string>
     <string name="action_open_wifi_settings">Wi-Fi settings</string>
+    <string name="action_reregister">Register again</string>
     <string name="action_open_location">Location</string>
     <string name="action_grant">Grant</string>
     <string name="action_battery">Battery exemption</string>
@@ -117,6 +120,11 @@
     <string name="event_auth_failure">Suggestion connection failed</string>
     <string name="event_backoff">Three phone failures, truck suggestion stays</string>
     <string name="event_suggestions">Suggestion list changed</string>
+    <string name="event_suggestion_status">Suggestion registration status</string>
+    <string name="event_approval">Suggestion approval</string>
+    <string name="event_scan">Scan</string>
+    <string name="event_decision">Decision</string>
+    <string name="event_password_missing">Password missing</string>
     <string name="event_wifi_off">Wi-Fi off</string>
     <string name="event_wifi_on">Wi-Fi on</string>
     <string name="event_target_phone">Target: phone</string>

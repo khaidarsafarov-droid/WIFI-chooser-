@@ -183,10 +183,15 @@ private class RecordingConnector(
         suggestions: List<PlannedSuggestion>,
         disconnectSsids: Set<String>,
         force: Boolean,
-    ): SuggestionCommit {
+    ): com.wifipriority.wifi.SuggestionApplyReport {
         applied += suggestions
         disconnects += disconnectSsids
-        val kind = addStatusCode?.let(::suggestionAddKind) ?: return SuggestionCommit.APPLIED
-        return suggestionCommitFor(kind, removedOnly = false)
+        val kind = addStatusCode?.let(::suggestionAddKind)
+        val commit = if (kind == null) {
+            SuggestionCommit.APPLIED
+        } else {
+            suggestionCommitFor(kind, removedOnly = false)
+        }
+        return com.wifipriority.wifi.SuggestionApplyReport(commit = commit, addStatus = addStatusCode)
     }
 }

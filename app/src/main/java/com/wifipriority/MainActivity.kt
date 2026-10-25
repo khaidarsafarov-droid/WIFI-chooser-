@@ -17,8 +17,8 @@ import com.wifipriority.ui.appDetailsIntent
 import com.wifipriority.ui.autoRevokeIntent
 import com.wifipriority.ui.batteryOptimizationIntent
 import com.wifipriority.ui.locationSettingsIntent
+import com.wifipriority.service.SuggestionCommands
 import com.wifipriority.ui.wifiPanelIntent
-import com.wifipriority.ui.wifiSettingsIntent
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels { AppViewModelFactory(application) }
@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
             BannerId.NEARBY_WIFI -> permissionLauncher.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES))
             BannerId.NOTIFICATIONS -> permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
             BannerId.LOCATION_OFF -> startActivity(locationSettingsIntent())
-            BannerId.SUGGESTIONS -> startActivity(wifiSettingsIntent())
+            BannerId.SUGGESTIONS, BannerId.SUGGESTIONS_MISSING -> SuggestionCommands.reregister(this)
             BannerId.BATTERY -> startActivity(batteryOptimizationIntent(this))
             BannerId.AUTO_REVOKE -> startActivity(autoRevokeIntent(this))
             BannerId.SAMSUNG_NEVER_SLEEPING -> startActivity(appDetailsIntent(this))
@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
             BannerId.WRONG_PASSWORD,
             BannerId.PHONE_PASSPHRASE,
             BannerId.TRUCK_PASSPHRASE,
+            BannerId.PASSWORD_MISSING,
             -> Unit
         }
     }

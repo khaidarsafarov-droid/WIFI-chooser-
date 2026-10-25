@@ -52,9 +52,15 @@ interface NetworkConnector {
 
     suspend fun applyTarget(target: WifiTarget)
 
+    /**
+     * SSIDs from `WifiManager.getNetworkSuggestions()`. Null when this connector
+     * has no platform list. An empty set means the system was read and holds nothing.
+     */
+    suspend fun registeredSsids(): Set<String>? = null
+
     suspend fun applySuggestions(
         suggestions: List<PlannedSuggestion>,
         disconnectSsids: Set<String> = emptySet(),
         force: Boolean = false,
-    ): SuggestionCommit = SuggestionCommit.APPLIED
+    ): SuggestionApplyReport = SuggestionApplyReport()
 }
