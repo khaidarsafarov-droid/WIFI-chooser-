@@ -130,4 +130,5 @@
     <string name="event_target_phone">Цель: телефон</string>
     <string name="event_target_truck">Цель: грузовик</string>
     <string name="event_target_none">Цель: нет</string>
+    <string name="event_cycle_error">Ошибка цикла</string>
 </resources>

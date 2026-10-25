@@ -10,6 +10,8 @@ data class SuggestionApplyReport(
     val addStatus: Int? = null,
     val removeStatus: Int? = null,
     val registeredSsids: Set<String>? = null,
+    /** Exception simple name when the platform call threw. No message: it can contain a passphrase. */
+    val failure: String? = null,
 )
 
 /**
@@ -129,12 +131,31 @@ private fun presence(ssid: String?, visible: Set<String>): String = when {
 fun suggestionStatusDetail(
     addCode: Int?,
     removeCode: Int?,
-    registered: Set<String>,
+    registered: Set<String>?,
     missing: Set<String>,
 ): String {
-    val add = addCode?.let { "$it ${suggestionAddKind(it).name}" } ?: "none"
+    val add = addCode?.let { "$it ${suggestionAddKind(it).name}" } ?: "not-called"
     val remove = removeCode?.let { "$it ${suggestionAddKind(it).name}" } ?: "none"
-    val have = if (registered.isEmpty()) "none" else registered.sorted().joinToString("|")
+    val have = when {
+        registered == null -> "unknown"
+        registered.isEmpty() -> "none"
+        else -> registered.sorted().joinToString("|")
+    }
     val miss = if (missing.isEmpty()) "none" else missing.sorted().joinToString("|")
     return "add=$add remove=$remove registered=$have missing=$miss"
+}
+
+/**
+ * One event-log line for a cycle that threw. Passphrases are replaced, and the
+ * message is shortened so the 500-line log stays readable.
+ */
+fun cycleErrorDetail(error: Throwable, secrets: Collection<String>): String {
+    val frame = error.stackTrace.firstOrNull { it.className.startsWith("com.wifipriority.") }
+    val where = if (frame == null) "unknown" else "${frame.fileName}:${frame.lineNumber}"
+    var message = error.message.orEmpty()
+    for (secret in secrets) {
+        if (secret.length >= 8) message = message.replace(secret, "redacted")
+    }
+    message = message.replace(Regex("\\s+"), " ").take(180)
+    return "${error.javaClass.simpleName} $where $message".trim()
 }

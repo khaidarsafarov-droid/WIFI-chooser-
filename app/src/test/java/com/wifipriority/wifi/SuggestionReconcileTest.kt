@@ -73,6 +73,14 @@ class SuggestionReconcileTest {
         )
         assertFalse(detail.contains("phone-secret-value"))
         assertFalse(detail.contains("truck-secret-value"))
+        val unknown = suggestionStatusDetail(null, null, registered = null, missing = emptySet())
+        assertEquals("add=not-called remove=none registered=unknown missing=none", unknown)
+        val leaked = cycleErrorDetail(
+            IllegalStateException("boom phone-secret-value"),
+            listOf("phone-secret-value"),
+        )
+        assertFalse(leaked.contains("phone-secret-value"))
+        assertTrue(leaked.contains("IllegalStateException"))
         val scan = scanSummary(phone.ssid, truck.ssid, setOf(phone.ssid), fresh = false, wifiEnabled = true)
         assertEquals("refused phone=visible truck=absent", scan)
         assertTrue(passwordMissing(phone.ssid, null))

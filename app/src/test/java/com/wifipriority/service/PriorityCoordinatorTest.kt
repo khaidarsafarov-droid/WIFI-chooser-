@@ -133,6 +133,88 @@ class PriorityCoordinatorTest {
     }
 
     @Test
+    fun persistedSignature_unknownApproval_emptyList_callsAdd() = runTest {
+        val credentials = InMemoryCredentialStore(enabledConfig())
+        val events = MemoryEventLog()
+        val policy = MemoryPolicyStateStore()
+        policy.save(PolicyState(
+            suggestionSignature = "PHONE:$PHONE_SSID:WPA2,TRUCK:$TRUCK_SSID:WPA2",
+            suggestionsInSystem = true,
+        ))
+        val connector = InventoryConnector(emptySet())
+        val scans = object : ScanSource {
+            override val scans: Flow<ScanSnapshot> = flow {
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 0L))
+            }
+        }
+        PriorityCoordinator(
+            scans = scans,
+            connector = connector,
+            credentials = credentials,
+            engine = PriorityEngine(FakeClock()),
+            status = MutableStateFlow(PriorityStatus()),
+            approval = flowOf(SuggestionApproval.UNKNOWN),
+            policyStore = policy,
+            eventLog = events,
+        ).run()
+        assertTrue(connector.forces.isNotEmpty())
+        assertTrue(connector.forces.all { it })
+        val statusLines = events.recent.value.filter { it.kind.name == "SUGGESTION_STATUS" }
+        assertTrue(statusLines.isNotEmpty())
+        assertTrue(statusLines.all { it.detail.contains("add=") && it.detail.contains("registered=") })
+        assertTrue(statusLines.any { it.detail.contains("add=0") })
+        assertFalse(events.recent.value.joinToString("\n") { it.detail }.contains(PHONE_PASSWORD))
+    }
+
+    @Test
+    fun exceptionDuringCycle_isLoggedAndTheNextScanStillAdds() = runTest {
+        val credentials = InMemoryCredentialStore(enabledConfig())
+        val events = MemoryEventLog()
+        var calls = 0
+        val connector = object : NetworkConnector {
+            private val connected = MutableStateFlow<String?>(null)
+            override val connectedSsid: Flow<String?> = connected
+            override suspend fun registeredSsids(): Set<String> = emptySet()
+            override suspend fun applyTarget(target: WifiTarget) = Unit
+            override suspend fun applySuggestions(
+                suggestions: List<com.wifipriority.wifi.PlannedSuggestion>,
+                disconnectSsids: Set<String>,
+                force: Boolean,
+            ): SuggestionApplyReport {
+                calls += 1
+                if (calls == 1) throw IllegalStateException("failed $PHONE_PASSWORD")
+                return SuggestionApplyReport(
+                    commit = SuggestionCommit.APPLIED,
+                    addStatus = 0,
+                    registeredSsids = emptySet(),
+                )
+            }
+        }
+        val scans = object : ScanSource {
+            override val scans: Flow<ScanSnapshot> = flow {
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 0L))
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 45_000L))
+            }
+        }
+        PriorityCoordinator(
+            scans = scans,
+            connector = connector,
+            credentials = credentials,
+            engine = PriorityEngine(FakeClock()),
+            status = MutableStateFlow(PriorityStatus()),
+            approval = flowOf(SuggestionApproval.UNKNOWN),
+            eventLog = events,
+        ).run()
+        assertTrue(calls >= 2)
+        val text = events.recent.value.joinToString("\n") { "${it.kind} ${it.detail}" }
+        assertTrue(text.contains("CYCLE_ERROR"))
+        assertTrue(text.contains("IllegalStateException"))
+        assertTrue(text.contains("add=0"))
+        assertTrue(text.contains("registered="))
+        assertFalse(text.contains(PHONE_PASSWORD))
+    }
+
+    @Test
     fun refusedScan_doesNotCountAsAPhoneMiss() = runTest {
         val credentials = InMemoryCredentialStore(enabledConfig())
         val connector = FakeNetworkConnector(credentials)

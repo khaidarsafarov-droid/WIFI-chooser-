@@ -2,8 +2,8 @@
 
 Personal Android app for a sideloaded tablet. It keeps the phone hotspot as Wi-Fi priority 1 and the truck hotspot as priority 2, based on which SSIDs are visible in scan results.
 
-- `mock` flavor (`USE_MOCK_WIFI=true`): in-memory scan and connector, still uses the Keystore credential store on device
-- `real` flavor (`USE_MOCK_WIFI=false`): `WifiManager.startScan()`, `WifiNetworkSuggestion`, foreground service
+- `mock` flavor (`USE_MOCK_WIFI=true`): in-memory factories for unit tests. The installed service still scans with `WifiManager` and registers `WifiNetworkSuggestion`s. Diagnostics scan lines include `build=mock`.
+- `real` flavor (`USE_MOCK_WIFI=false`): the same service path. Diagnostics scan lines include `build=real`. Install this APK.
 
 `minSdk` 33, `compileSdk` / `targetSdk` 36.
 
@@ -21,7 +21,7 @@ Real debug APK:
 ./gradlew assembleRealDebug
 ```
 
-The file is `app/build/outputs/apk/real/debug/app-real-debug.apk`.
+The file is `app/build/outputs/apk/real/debug/app-real-debug.apk`. Both flavors share `applicationId` `com.wifipriority`. The status event log's scan line includes `build=real` or `build=mock`.
 
 ## Install the real APK over USB
 
