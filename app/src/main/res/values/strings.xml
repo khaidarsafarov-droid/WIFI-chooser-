@@ -113,6 +113,7 @@
     <string name="event_force_timeout">Телефон не подключился за 30 с, сеть грузовика возвращена</string>
     <string name="event_watchdog">Нет интернета больше 2 минут, подсказки зарегистрированы заново</string>
     <string name="event_drop_phone">Телефон без интернета больше 2 минут, остаёмся на грузовике</string>
+    <string name="event_disconnect_retry">Повторно отключаем телефон без интернета</string>
     <string name="event_auth_failure">Ошибка подключения к подсказке</string>
     <string name="event_backoff">Три ошибки телефона, сеть грузовика не убираем</string>
     <string name="event_suggestions">Список подсказок изменён</string>

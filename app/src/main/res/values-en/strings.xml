@@ -113,6 +113,7 @@
     <string name="event_force_timeout">Phone did not connect within 30s, truck suggestion restored</string>
     <string name="event_watchdog">No internet for over 2 minutes, suggestions registered again</string>
     <string name="event_drop_phone">Phone had no internet for over 2 minutes, staying on the truck</string>
+    <string name="event_disconnect_retry">Disconnecting the phone again; it still has no internet</string>
     <string name="event_auth_failure">Suggestion connection failed</string>
     <string name="event_backoff">Three phone failures, truck suggestion stays</string>
     <string name="event_suggestions">Suggestion list changed</string>

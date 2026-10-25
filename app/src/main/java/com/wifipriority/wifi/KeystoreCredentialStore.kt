@@ -29,6 +29,7 @@ private val Context.credentialDataStore: DataStore<Preferences> by preferencesDa
 class KeystoreCredentialStore(
     private val blobs: CiphertextStore,
     private val cipher: AesGcmCipher,
+    private val onSaved: (PriorityConfig) -> Unit = {},
 ) : CredentialStore {
     override val config: Flow<PriorityConfig> = blobs.updates()
         .map(::decode)
@@ -40,6 +41,7 @@ class KeystoreCredentialStore(
         val encoded = PriorityConfigCodec.encode(config)
         val payload = cipher.encrypt(encoded)
         blobs.write(Base64.getEncoder().encodeToString(payload))
+        onSaved(config)
     }
 
     private fun decode(stored: String?): PriorityConfig {
@@ -61,6 +63,7 @@ class KeystoreCredentialStore(
             return KeystoreCredentialStore(
                 blobs = DataStoreCiphertextStore(appContext.credentialDataStore),
                 cipher = AesGcmCipher(AndroidKeyStoreKeys.getOrCreate(KEY_ALIAS)),
+                onSaved = { saved -> EnabledLatch.write(appContext, saved.enabled) },
             )
         }
     }

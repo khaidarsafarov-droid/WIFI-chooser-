@@ -14,6 +14,11 @@ data class LinkObservation(
     val connectedSsid: String? = null,
     val validated: Boolean = false,
     val fromOurSuggestion: Boolean? = null,
+    /**
+     * False until a platform callback has reported the association.
+     * An unknown link must not start the unvalidated watchdog.
+     */
+    val known: Boolean = true,
 )
 
 /**
@@ -35,6 +40,7 @@ interface NetworkConnector {
                 connectedSsid = ssid,
                 validated = ssid != null,
                 fromOurSuggestion = if (ssid == null) null else true,
+                known = true,
             )
         }
 
@@ -50,5 +56,5 @@ interface NetworkConnector {
         suggestions: List<PlannedSuggestion>,
         disconnectSsids: Set<String> = emptySet(),
         force: Boolean = false,
-    ) = Unit
+    ): SuggestionCommit = SuggestionCommit.APPLIED
 }
