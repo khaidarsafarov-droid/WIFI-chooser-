@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WiFi Priority</string>
+    <string name="channel_status">Priority status</string>
+    <string name="channel_alerts">Priority alerts</string>
+    <string name="status_notification">Connected: %1$s. Last switch: %2$s</string>
+    <string name="wifi_off_status">Wi-Fi is off. The app cannot turn it on.</string>
+    <string name="open_wifi_settings">Wi-Fi settings</string>
+    <string name="suggestions_title">Allow network suggestions</string>
+    <string name="suggestions_pending">Android must allow this app to suggest Wi-Fi networks. Open the system notification or Wi-Fi settings and approve suggestions.</string>
+    <string name="suggestions_rejected">Network suggestions were denied. Open Wi-Fi settings and allow suggestions from WiFi Priority.</string>
+    <string name="status_title">Status</string>
+    <string name="status_network">Current network: %1$s</string>
+    <string name="status_target">Target: %1$s</string>
+    <string name="status_switch">Last switch: %1$s</string>
+    <string name="target_phone">Phone</string>
+    <string name="target_truck">Truck</string>
+    <string name="target_none">None</string>
+    <string name="warnings_title">Needs attention</string>
+    <string name="enable_priority">Keep priority running</string>
+    <string name="phone_ssid">Phone hotspot SSID</string>
+    <string name="phone_password">Phone hotspot password</string>
+    <string name="truck_ssid">Truck hotspot SSID</string>
+    <string name="truck_password">Truck hotspot password</string>
+    <string name="show_password">Show</string>
+    <string name="hide_password">Hide</string>
+    <string name="save">Save</string>
+    <string name="saved">Saved</string>
+    <string name="warn_location_permission">Location permission is required. Without it, scan results hide SSIDs.</string>
+    <string name="warn_nearby_wifi">Nearby Wi-Fi devices permission is required to read SSIDs.</string>
+    <string name="warn_notifications">Notification permission is required for the status notification.</string>
+    <string name="warn_location_off">Location is off. Android redacts SSIDs until location is on.</string>
+    <string name="warn_wifi_off">Wi-Fi is off. Use the notification button to open the Wi-Fi panel.</string>
+    <string name="warn_battery">Battery optimization is on. Exempt WiFi Priority so scans keep running.</string>
+    <string name="warn_phone_passphrase">Phone password must be at least 8 characters for WPA2.</string>
+    <string name="warn_truck_passphrase">Truck password must be at least 8 characters for WPA2.</string>
+</resources>
