@@ -17,7 +17,9 @@ import com.wifipriority.wifi.SuggestionApproval
 import com.wifipriority.wifi.SuggestionCommit
 import com.wifipriority.wifi.SuggestionPlanner
 import com.wifipriority.wifi.SuggestionPolicy
+import com.wifipriority.wifi.SuggestionApplyReport
 import com.wifipriority.wifi.commitAfterInventory
+import com.wifipriority.wifi.cycleErrorDetail
 import com.wifipriority.wifi.missingSuggestionSsids
 import com.wifipriority.wifi.needsPlatformReadd
 import com.wifipriority.wifi.passwordMissing
@@ -27,6 +29,7 @@ import com.wifipriority.wifi.WallClock
 import com.wifipriority.wifi.WifiSecurity
 import com.wifipriority.wifi.WifiTarget
 import com.wifipriority.wifi.recoveryDeadlineMillis
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -61,6 +64,7 @@ class PriorityCoordinator(
     private val policyStore: PolicyStateStore = MemoryPolicyStateStore(),
     private val eventLog: EventLog = MemoryEventLog(),
     private val awaitDeadline: suspend (Long) -> Unit = { delay(it) },
+    private val buildLabel: String = "real",
 ) {
     private var loggedPasswordGap = ""
     suspend fun run() {
@@ -81,13 +85,19 @@ class PriorityCoordinator(
         val pulse = Channel<Unit>(Channel.CONFLATED)
 
         suspend fun commit(authFailure: ConnectionFailure? = null, forceSuggestions: Boolean = false) {
-            val outcome = publish(
-                engineState, policyState, link, visible, security, lastScan, radioOn,
-                addStatus, connectedSince, postedSuggestionSsid, authFailure, forceSuggestions,
-            )
-            policyState = outcome.state
-            suggestionRetryAt = outcome.retryAt
-            pulse.trySend(Unit)
+            try {
+                val outcome = publish(
+                    engineState, policyState, link, visible, security, lastScan, radioOn,
+                    addStatus, connectedSince, postedSuggestionSsid, authFailure, forceSuggestions,
+                )
+                policyState = outcome.state
+                suggestionRetryAt = outcome.retryAt
+                pulse.trySend(Unit)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                logCycle(error)
+            }
         }
 
         fun wakeAt(): Long? = listOfNotNull(
@@ -98,17 +108,12 @@ class PriorityCoordinator(
         coroutineScope {
             val side = launch {
                 launch {
-                    var first = true
                     approval.collect { value ->
                         mutex.withLock {
                             status.update { it.copy(suggestionApproval = value) }
                             if (loggedApproval != value) {
                                 loggedApproval = value
                                 eventLog.append(listOf(LogEvent(clock.nowMillis(), LogKind.APPROVAL, value.name)))
-                            }
-                            if (first) {
-                                first = false
-                                return@withLock
                             }
                             commit(forceSuggestions = true)
                         }
@@ -184,6 +189,7 @@ class PriorityCoordinator(
             }
             try {
                 scans.scans.collect { snapshot ->
+                    try {
                     mutex.withLock {
                         val config = credentials.load()
                         seenConfig = config
@@ -193,7 +199,7 @@ class PriorityCoordinator(
                             eventLog.append(listOf(LogEvent(
                                 clock.nowMillis(),
                                 LogKind.SCAN,
-                                scanSummary(config.phoneSsid(), config.truckSsid(), emptySet(), fresh = false, wifiEnabled = false),
+                                scanLine(config.phoneSsid(), config.truckSsid(), emptySet(), fresh = false, wifiEnabled = false),
                             )))
                             if (wasRadioOn) {
                                 eventLog.append(listOf(LogEvent(clock.nowMillis(), LogKind.WIFI_OFF, "")))
@@ -205,7 +211,7 @@ class PriorityCoordinator(
                             eventLog.append(listOf(LogEvent(
                                 clock.nowMillis(),
                                 LogKind.SCAN,
-                                scanSummary(config.phoneSsid(), config.truckSsid(), visible, fresh = false, wifiEnabled = true),
+                                scanLine(config.phoneSsid(), config.truckSsid(), visible, fresh = false, wifiEnabled = true),
                             )))
                             return@withLock
                         }
@@ -219,7 +225,7 @@ class PriorityCoordinator(
                         eventLog.append(listOf(LogEvent(
                             clock.nowMillis(),
                             LogKind.SCAN,
-                            scanSummary(config.phoneSsid(), config.truckSsid(), visible, fresh = true, wifiEnabled = true),
+                            scanLine(config.phoneSsid(), config.truckSsid(), visible, fresh = true, wifiEnabled = true),
                         )))
                         val step = engine.onScan(engineState, snapshot, config)
                         val previousTarget = engineState.target
@@ -245,6 +251,11 @@ class PriorityCoordinator(
                             connectedSince = clock.nowMillis()
                         }
                         commit()
+                    }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        logCycle(error)
                     }
                 }
             } finally {
@@ -309,9 +320,31 @@ class PriorityCoordinator(
             eventLog.append(listOf(LogEvent(now, LogKind.PASSWORD_MISSING, passwordGap)))
         }
         loggedPasswordGap = passwordGap
-        val registeredBefore = connector.registeredSsids()
-        val force = step.forceReapply || forceSuggestions || needsPlatformReadd(step.suggestions, registeredBefore)
-        val report = connector.applySuggestions(step.suggestions, step.disconnectSsids, force)
+        val registeredBefore = try {
+            connector.registeredSsids()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            logCycle(error)
+            null
+        }
+        // Null inventory is not proof the SSIDs are stored, so this cycle still calls add.
+        // A null read stays out of commitAfterInventory, which only retries when the
+        // platform list was actually read and is missing an SSID.
+        val inventoryMissing = step.suggestions.isNotEmpty() &&
+            (registeredBefore == null || needsPlatformReadd(step.suggestions, registeredBefore))
+        val force = step.forceReapply || forceSuggestions || inventoryMissing
+        val report = try {
+            connector.applySuggestions(step.suggestions, step.disconnectSsids, force)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            logCycle(error)
+            SuggestionApplyReport(commit = SuggestionCommit.FAILED)
+        }
+        if (!report.failure.isNullOrBlank()) {
+            eventLog.append(listOf(LogEvent(now, LogKind.CYCLE_ERROR, report.failure)))
+        }
         val registeredAfter = report.registeredSsids ?: registeredBefore
         val missing = if (registeredAfter == null) {
             emptySet()
@@ -319,13 +352,12 @@ class PriorityCoordinator(
             missingSuggestionSsids(step.suggestions, registeredAfter)
         }
         val commitResult = commitAfterInventory(report.commit, step.suggestions, registeredAfter)
-        if (report.addStatus != null || report.removeStatus != null || missing.isNotEmpty()) {
-            eventLog.append(listOf(LogEvent(
-                now,
-                LogKind.SUGGESTION_STATUS,
-                suggestionStatusDetail(report.addStatus, report.removeStatus, registeredAfter.orEmpty(), missing),
-            )))
-        }
+        eventLog.append(listOf(LogEvent(
+            now,
+            LogKind.SUGGESTION_STATUS,
+            suggestionStatusDetail(report.addStatus, report.removeStatus, registeredAfter, missing) +
+                " build=$buildLabel",
+        )))
         val inSystem = when {
             registeredAfter == null -> step.state.suggestionsInSystem
             step.suggestions.isEmpty() -> false
@@ -365,6 +397,26 @@ class PriorityCoordinator(
             )
         }
         return PublishOutcome(nextState, retryAt)
+    }
+
+    private fun scanLine(
+        phoneSsid: String?,
+        truckSsid: String?,
+        visible: Set<String>,
+        fresh: Boolean,
+        wifiEnabled: Boolean,
+    ): String = scanSummary(phoneSsid, truckSsid, visible, fresh, wifiEnabled) + " build=$buildLabel"
+
+    private suspend fun logCycle(error: Throwable) {
+        val secrets = runCatching {
+            val config = credentials.load()
+            listOfNotNull(config.phone?.password, config.truck?.password)
+        }.getOrDefault(emptyList())
+        eventLog.append(listOf(LogEvent(
+            clock.nowMillis(),
+            LogKind.CYCLE_ERROR,
+            cycleErrorDetail(error, secrets),
+        )))
     }
 
     private fun resolveSuggestion(

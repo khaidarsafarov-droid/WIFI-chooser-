@@ -11,8 +11,8 @@ android {
         applicationId = "com.wifipriority"
         minSdk = 33
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.3.2"
     }
 
     flavorDimensions += "stack"

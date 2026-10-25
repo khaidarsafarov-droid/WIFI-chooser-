@@ -313,6 +313,7 @@ enum class LogKind {
     TARGET_PHONE,
     TARGET_TRUCK,
     TARGET_NONE,
+    CYCLE_ERROR,
 }
 
 data class LogEvent(

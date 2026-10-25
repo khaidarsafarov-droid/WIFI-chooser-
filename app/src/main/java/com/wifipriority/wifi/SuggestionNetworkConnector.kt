@@ -14,6 +14,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,11 +135,14 @@ class SuggestionNetworkConnector(
     private fun replace(planned: List<PlannedSuggestion>, disconnectSsids: Set<String>): SuggestionApplyReport {
         return try {
             registerSuggestions(platform(), planned, disconnectSsids)
-        } catch (error: SecurityException) {
-            Log.w(TAG, "suggestion update missing CHANGE_WIFI_STATE or ACCESS_WIFI_STATE")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(TAG, "suggestion update failed: ${error.javaClass.simpleName}")
             SuggestionApplyReport(
                 commit = SuggestionCommit.FAILED,
                 registeredSsids = emptySet(),
+                failure = error.javaClass.simpleName,
             )
         }
     }
