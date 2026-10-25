@@ -312,6 +312,7 @@ private fun eventKindText(kind: LogKind): Int = when (kind) {
     LogKind.TARGET_TRUCK -> R.string.event_target_truck
     LogKind.TARGET_NONE -> R.string.event_target_none
     LogKind.CYCLE_ERROR -> R.string.event_cycle_error
+    LogKind.SCAN_STALE -> R.string.event_scan_stale
 }
 
 private fun noteText(note: TruckNote): Int = when (note) {

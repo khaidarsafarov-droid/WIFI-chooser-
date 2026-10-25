@@ -45,7 +45,7 @@ object SuggestionPolicy {
         }
 
         val onPhone = observation.connectedSsid != null && observation.connectedSsid == observation.phoneSsid
-        val validatedLink = observation.validated && observation.connectedSsid != null
+        val validatedLink = observation.validated
         if (onPhone && observation.fromOurSuggestion == true && observation.validated) {
             next = next.copy(
                 phoneFailures = 0,
@@ -108,6 +108,7 @@ object SuggestionPolicy {
             observation.target == WifiTarget.PHONE &&
             phoneVisible &&
             onTruck &&
+            !onPhone &&
             observation.validated &&
             !backoff &&
             !phoneHeldDown &&
@@ -314,6 +315,7 @@ enum class LogKind {
     TARGET_TRUCK,
     TARGET_NONE,
     CYCLE_ERROR,
+    SCAN_STALE,
 }
 
 data class LogEvent(

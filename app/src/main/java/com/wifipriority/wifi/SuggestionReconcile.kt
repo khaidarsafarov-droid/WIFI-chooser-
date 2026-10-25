@@ -114,12 +114,20 @@ fun scanSummary(
     visible: Set<String>,
     fresh: Boolean,
     wifiEnabled: Boolean,
+    refusal: ScanRefusal? = null,
+    resultsAgeMillis: Long? = null,
 ): String {
     if (!wifiEnabled) return "wifi=off"
     val phone = presence(phoneSsid, visible)
     val truck = presence(truckSsid, visible)
-    val head = if (fresh) "n=${visible.size}" else "refused"
-    return "$head phone=$phone truck=$truck"
+    val head = when {
+        fresh -> "n=${visible.size}"
+        cachedResultsUsable(resultsAgeMillis) -> "cached"
+        else -> "refused"
+    }
+    val reason = refusal?.let { " reason=${it.name}" }.orEmpty()
+    val age = resultsAgeMillis?.let { " age=${it / 1000}s" }.orEmpty()
+    return "$head$reason$age phone=$phone truck=$truck"
 }
 
 private fun presence(ssid: String?, visible: Set<String>): String = when {

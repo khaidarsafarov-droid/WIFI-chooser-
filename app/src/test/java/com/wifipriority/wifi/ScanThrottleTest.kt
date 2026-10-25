@@ -50,6 +50,25 @@ class ScanThrottleTest {
     }
 
     @Test
+    fun cadenceOf45Seconds_staysInsideTheThrottle() {
+        repeat(10) { index ->
+            clock.set(index * ScanPolicy.INTERVAL_MILLIS)
+            assertTrue("attempt $index", throttle.tryAcquire())
+        }
+    }
+
+    @Test
+    fun abandonedFailedScan_doesNotConsumeTheWindow() {
+        repeat(ScanPolicy.THROTTLE_MAX_SCANS) { index ->
+            clock.set(index * 1_000L)
+            assertTrue(throttle.tryAcquire())
+        }
+        throttle.abandonLast()
+        assertTrue(throttle.tryAcquire())
+        assertEquals(ScanPolicy.THROTTLE_MAX_SCANS, throttle.size())
+    }
+
+    @Test
     fun scanExactlyTwoMinutesOld_noLongerCounts() {
         repeat(ScanPolicy.THROTTLE_MAX_SCANS) {
             clock.set(0L)

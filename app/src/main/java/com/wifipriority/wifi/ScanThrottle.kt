@@ -32,6 +32,14 @@ class ScanThrottle(
         }
     }
 
+    /**
+     * Drops the newest acquisition. A `startScan` that returns false never ran,
+     * so it must not occupy a slot for the rest of the window.
+     */
+    fun abandonLast() = synchronized(attempts) {
+        if (attempts.isNotEmpty()) attempts.removeLast()
+    }
+
     /** Acquisitions still inside the window. Visible for tests. */
     fun size(): Int = synchronized(attempts) {
         val now = clock.nowMillis()
