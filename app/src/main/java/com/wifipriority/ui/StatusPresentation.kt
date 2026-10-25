@@ -8,6 +8,7 @@ import com.wifipriority.wifi.SuggestionAddKind
 import com.wifipriority.wifi.SuggestionApproval
 import com.wifipriority.wifi.WifiSecurity
 import com.wifipriority.wifi.WifiTarget
+import com.wifipriority.wifi.passwordMissing
 import com.wifipriority.wifi.suggestionAddKind
 
 enum class StartDestination { HOME, SETTINGS }
@@ -23,6 +24,8 @@ enum class BannerId {
     NOTIFICATIONS,
     LOCATION_OFF,
     SUGGESTIONS,
+    SUGGESTIONS_MISSING,
+    PASSWORD_MISSING,
     BATTERY,
     SERVICE_DISABLED,
     AUTO_REVOKE,
@@ -147,6 +150,12 @@ fun deviceBanners(signals: DeviceSignals, status: PriorityStatus, config: Priori
         status.suggestionApproval == SuggestionApproval.REJECTED
     ) {
         banners += BannerId.SUGGESTIONS
+    }
+    if (status.suggestionsMissing) banners += BannerId.SUGGESTIONS_MISSING
+    if (passwordMissing(config.phoneSsid(), config.phone?.password) ||
+        passwordMissing(config.truckSsid(), config.truck?.password)
+    ) {
+        banners += BannerId.PASSWORD_MISSING
     }
     if (!signals.batteryExempt) banners += BannerId.BATTERY
     if (!config.enabled) banners += BannerId.SERVICE_DISABLED

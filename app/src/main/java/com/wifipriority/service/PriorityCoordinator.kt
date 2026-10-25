@@ -17,6 +17,12 @@ import com.wifipriority.wifi.SuggestionApproval
 import com.wifipriority.wifi.SuggestionCommit
 import com.wifipriority.wifi.SuggestionPlanner
 import com.wifipriority.wifi.SuggestionPolicy
+import com.wifipriority.wifi.commitAfterInventory
+import com.wifipriority.wifi.missingSuggestionSsids
+import com.wifipriority.wifi.needsPlatformReadd
+import com.wifipriority.wifi.passwordMissing
+import com.wifipriority.wifi.scanSummary
+import com.wifipriority.wifi.suggestionStatusDetail
 import com.wifipriority.wifi.WallClock
 import com.wifipriority.wifi.WifiSecurity
 import com.wifipriority.wifi.WifiTarget
@@ -39,10 +45,10 @@ import kotlinx.coroutines.sync.withLock
  * Wi-Fi-off snapshots update status only; they are not engine scans.
  *
  * Force-return (30s) and the unvalidated watchdog (2 min) are deadlines, not
- * side effects of the next scan. A refused `startScan` emits nothing, and a
- * stable [NetworkCallback] does not fire again, so those timers are waited
- * here. [awaitDeadline] is [delay] in tests and a short wakelock on device,
- * so the wait still elapses while the CPU would otherwise suspend.
+ * side effects of the next scan. A refused `startScan` is logged and does not
+ * count as a miss. A stable [NetworkCallback] does not fire again, so those
+ * timers are waited here. [awaitDeadline] is [delay] in tests and a short
+ * wakelock on device, so the wait still elapses while the CPU would otherwise suspend.
  */
 class PriorityCoordinator(
     private val scans: ScanSource,
@@ -56,6 +62,7 @@ class PriorityCoordinator(
     private val eventLog: EventLog = MemoryEventLog(),
     private val awaitDeadline: suspend (Long) -> Unit = { delay(it) },
 ) {
+    private var loggedPasswordGap = ""
     suspend fun run() {
         var engineState = EngineState()
         var policyState = policyStore.load()
@@ -69,6 +76,7 @@ class PriorityCoordinator(
         var postedSuggestionSsid: String? = null
         var suggestionRetryAt: Long? = null
         var seenConfig = credentials.load()
+        var loggedApproval: SuggestionApproval? = null
         val mutex = Mutex()
         val pulse = Channel<Unit>(Channel.CONFLATED)
 
@@ -94,6 +102,10 @@ class PriorityCoordinator(
                     approval.collect { value ->
                         mutex.withLock {
                             status.update { it.copy(suggestionApproval = value) }
+                            if (loggedApproval != value) {
+                                loggedApproval = value
+                                eventLog.append(listOf(LogEvent(clock.nowMillis(), LogKind.APPROVAL, value.name)))
+                            }
                             if (first) {
                                 first = false
                                 return@withLock
@@ -118,6 +130,11 @@ class PriorityCoordinator(
                 launch {
                     connector.connectionFailures.collect { failure ->
                         mutex.withLock { commit(authFailure = failure) }
+                    }
+                }
+                launch {
+                    SuggestionCommands.requests.collect {
+                        mutex.withLock { commit(forceSuggestions = true) }
                     }
                 }
                 launch {
@@ -173,10 +190,23 @@ class PriorityCoordinator(
                         val wasRadioOn = radioOn
                         if (!snapshot.wifiEnabled) {
                             radioOn = false
+                            eventLog.append(listOf(LogEvent(
+                                clock.nowMillis(),
+                                LogKind.SCAN,
+                                scanSummary(config.phoneSsid(), config.truckSsid(), emptySet(), fresh = false, wifiEnabled = false),
+                            )))
                             if (wasRadioOn) {
                                 eventLog.append(listOf(LogEvent(clock.nowMillis(), LogKind.WIFI_OFF, "")))
                             }
                             commit()
+                            return@withLock
+                        }
+                        if (!snapshot.fresh) {
+                            eventLog.append(listOf(LogEvent(
+                                clock.nowMillis(),
+                                LogKind.SCAN,
+                                scanSummary(config.phoneSsid(), config.truckSsid(), visible, fresh = false, wifiEnabled = true),
+                            )))
                             return@withLock
                         }
                         radioOn = true
@@ -186,9 +216,19 @@ class PriorityCoordinator(
                         visible = snapshot.visibleSsids
                         security = snapshot.securityBySsid
                         lastScan = snapshot.timestampMillis
+                        eventLog.append(listOf(LogEvent(
+                            clock.nowMillis(),
+                            LogKind.SCAN,
+                            scanSummary(config.phoneSsid(), config.truckSsid(), visible, fresh = true, wifiEnabled = true),
+                        )))
                         val step = engine.onScan(engineState, snapshot, config)
                         val previousTarget = engineState.target
                         engineState = step.state
+                        eventLog.append(listOf(LogEvent(
+                            clock.nowMillis(),
+                            LogKind.DECISION,
+                            "${engineState.target} ${step.decision.reason}",
+                        )))
                         if (engineState.target != previousTarget) {
                             val kind = when (engineState.target) {
                                 WifiTarget.PHONE -> LogKind.TARGET_PHONE
@@ -260,13 +300,40 @@ class PriorityCoordinator(
             linkKnown = link.known,
         )
         val step = SuggestionPolicy.evaluate(policyState, observation, now)
-        if (step.state != policyState) policyStore.save(step.state)
         if (step.events.isNotEmpty()) eventLog.append(step.events)
-        val commitResult = connector.applySuggestions(
-            step.suggestions,
-            step.disconnectSsids,
-            step.forceReapply || forceSuggestions,
-        )
+        val passwordGap = listOfNotNull(
+            "phone".takeIf { passwordMissing(observation.phoneSsid, observation.phonePassphrase) },
+            "truck".takeIf { passwordMissing(observation.truckSsid, observation.truckPassphrase) },
+        ).joinToString(",")
+        if (passwordGap.isNotEmpty() && passwordGap != loggedPasswordGap) {
+            eventLog.append(listOf(LogEvent(now, LogKind.PASSWORD_MISSING, passwordGap)))
+        }
+        loggedPasswordGap = passwordGap
+        val registeredBefore = connector.registeredSsids()
+        val force = step.forceReapply || forceSuggestions || needsPlatformReadd(step.suggestions, registeredBefore)
+        val report = connector.applySuggestions(step.suggestions, step.disconnectSsids, force)
+        val registeredAfter = report.registeredSsids ?: registeredBefore
+        val missing = if (registeredAfter == null) {
+            emptySet()
+        } else {
+            missingSuggestionSsids(step.suggestions, registeredAfter)
+        }
+        val commitResult = commitAfterInventory(report.commit, step.suggestions, registeredAfter)
+        if (report.addStatus != null || report.removeStatus != null || missing.isNotEmpty()) {
+            eventLog.append(listOf(LogEvent(
+                now,
+                LogKind.SUGGESTION_STATUS,
+                suggestionStatusDetail(report.addStatus, report.removeStatus, registeredAfter.orEmpty(), missing),
+            )))
+        }
+        val inSystem = when {
+            registeredAfter == null -> step.state.suggestionsInSystem
+            step.suggestions.isEmpty() -> false
+            missing.isEmpty() -> true
+            else -> false
+        }
+        val nextState = step.state.copy(suggestionsInSystem = inSystem)
+        if (nextState != policyState) policyStore.save(nextState)
         val retryAt = if (commitResult == SuggestionCommit.FAILED) {
             now + SuggestionPlanner.SUGGESTION_RETRY_MILLIS
         } else {
@@ -293,9 +360,11 @@ class PriorityCoordinator(
                 failureBackoffUntil = step.state.failureBackoffUntil,
                 forceReturnActive = step.state.forceReturnSince != null,
                 suppressPhoneUntil = step.state.suppressPhoneUntil,
+                suggestionsMissing = step.suggestions.isNotEmpty() && missing.isNotEmpty(),
+                passwordMissing = passwordGap.isNotEmpty(),
             )
         }
-        return PublishOutcome(step.state, retryAt)
+        return PublishOutcome(nextState, retryAt)
     }
 
     private fun resolveSuggestion(
@@ -343,6 +412,8 @@ data class PriorityStatus(
     val failureBackoffUntil: Long? = null,
     val forceReturnActive: Boolean = false,
     val suppressPhoneUntil: Long? = null,
+    val suggestionsMissing: Boolean = false,
+    val passwordMissing: Boolean = false,
 )
 
 /** Process-wide status the service writes and the settings screen reads. */

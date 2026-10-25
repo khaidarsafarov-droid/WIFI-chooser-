@@ -83,6 +83,7 @@ private fun opensSettings(banner: BannerId): Boolean = when (banner) {
     BannerId.WRONG_PASSWORD,
     BannerId.PHONE_PASSPHRASE,
     BannerId.TRUCK_PASSPHRASE,
+    BannerId.PASSWORD_MISSING,
     -> true
     else -> false
 }

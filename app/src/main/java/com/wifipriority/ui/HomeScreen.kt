@@ -301,6 +301,11 @@ private fun eventKindText(kind: LogKind): Int = when (kind) {
     LogKind.PHONE_AUTH_FAILURE -> R.string.event_auth_failure
     LogKind.PHONE_BACKOFF -> R.string.event_backoff
     LogKind.SUGGESTIONS_CHANGED -> R.string.event_suggestions
+    LogKind.SUGGESTION_STATUS -> R.string.event_suggestion_status
+    LogKind.APPROVAL -> R.string.event_approval
+    LogKind.SCAN -> R.string.event_scan
+    LogKind.DECISION -> R.string.event_decision
+    LogKind.PASSWORD_MISSING -> R.string.event_password_missing
     LogKind.WIFI_OFF -> R.string.event_wifi_off
     LogKind.WIFI_ON -> R.string.event_wifi_on
     LogKind.TARGET_PHONE -> R.string.event_target_phone
@@ -329,6 +334,8 @@ private fun bannerText(banner: BannerId): Int = when (banner) {
     BannerId.NOTIFICATIONS -> R.string.banner_notifications
     BannerId.LOCATION_OFF -> R.string.banner_location_off
     BannerId.SUGGESTIONS -> R.string.banner_suggestions
+    BannerId.SUGGESTIONS_MISSING -> R.string.banner_suggestions_missing
+    BannerId.PASSWORD_MISSING -> R.string.banner_password_missing
     BannerId.BATTERY -> R.string.banner_battery
     BannerId.SERVICE_DISABLED -> R.string.banner_service_disabled
     BannerId.AUTO_REVOKE -> R.string.banner_auto_revoke
@@ -344,7 +351,8 @@ private fun bannerAction(banner: BannerId): Int = when (banner) {
     BannerId.WIFI_OFF, BannerId.SAVED_NETWORK_BLOCKS -> R.string.action_open_wifi
     BannerId.FINE_LOCATION, BannerId.NEARBY_WIFI, BannerId.NOTIFICATIONS -> R.string.action_grant
     BannerId.LOCATION_OFF -> R.string.action_open_location
-    BannerId.SUGGESTIONS -> R.string.action_open_wifi_settings
+    BannerId.SUGGESTIONS, BannerId.SUGGESTIONS_MISSING -> R.string.action_reregister
+    BannerId.PASSWORD_MISSING -> R.string.action_open_settings
     BannerId.BATTERY -> R.string.action_battery
     BannerId.SERVICE_DISABLED, BannerId.CANNOT_CONNECT_PHONE, BannerId.WRONG_PASSWORD,
     BannerId.PHONE_PASSPHRASE, BannerId.TRUCK_PASSPHRASE,

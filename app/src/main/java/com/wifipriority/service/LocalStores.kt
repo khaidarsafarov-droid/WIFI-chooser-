@@ -99,6 +99,7 @@ internal fun encodePolicy(state: PolicyState): String = buildString {
     appendLine("lastFailureSsid=${state.lastFailureSsid.orEmpty()}")
     appendLine("lastFailureReason=${state.lastFailureReason?.name.orEmpty()}")
     appendLine("suggestionSignature=${state.suggestionSignature}")
+    appendLine("suggestionsInSystem=${state.suggestionsInSystem}")
 }
 
 internal fun decodePolicy(text: String): PolicyState {
@@ -119,6 +120,7 @@ internal fun decodePolicy(text: String): PolicyState {
             runCatching { FailureReason.valueOf(it) }.getOrNull()
         },
         suggestionSignature = map["suggestionSignature"].orEmpty(),
+        suggestionsInSystem = map["suggestionsInSystem"] == "true",
     )
 }
 

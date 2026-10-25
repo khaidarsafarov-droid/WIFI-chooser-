@@ -38,9 +38,11 @@ class LocalStoresTest {
             lastFailureSsid = "S26 ULTRA",
             lastFailureReason = FailureReason.AUTHENTICATION,
             suggestionSignature = "PHONE:S26 ULTRA:WPA2",
+            suggestionsInSystem = true,
         )
         store.save(state)
         assertEquals(state, FilePolicyStateStore(file).load())
+        assertEquals(false, decodePolicy("suggestionSignature=PHONE:S26 ULTRA:WPA2").suggestionsInSystem)
         assertTrue(decodePolicy("garbage").phoneFailures == 0)
         file.delete()
     }

@@ -58,7 +58,9 @@
     <string name="banner_nearby">Нет разрешения на устройства Wi‑Fi поблизости. Без него имена сетей недоступны.</string>
     <string name="banner_notifications">Нет разрешения на уведомления. Строка статуса не появится.</string>
     <string name="banner_location_off">Геолокация выключена. Включите её, иначе имена сетей скрыты.</string>
-    <string name="banner_suggestions">Подсказки сетей не подтверждены. Разрешите их в настройках Wi‑Fi.</string>
+    <string name="banner_suggestions">Подсказки сетей не подтверждены. Нажмите кнопку, пока это приложение на экране, и подтвердите системный запрос «Разрешить».</string>
+    <string name="banner_suggestions_missing">Android не хранит подсказки этого приложения. Сохранённый план не считается регистрацией.</string>
+    <string name="banner_password_missing">Пароль не задан. Без пароля сеть не попадает в подсказки.</string>
     <string name="banner_battery">Оптимизация батареи не отключена. Без исключения сканирование остановится.</string>
     <string name="banner_service_disabled">Приоритет на паузе. Включите его в настройках.</string>
     <string name="banner_auto_revoke">Android может отозвать разрешения, если приложение долго не открывают. Отключите «Приостановить работу приложения, если оно не используется».</string>
@@ -68,6 +70,7 @@
     <string name="banner_samsung">Добавьте приложение в «Не спящие приложения»: Зарядка и обслуживание → Аккумулятор → Ограничения фонового использования. Иначе в рейсе система остановит сканирование.</string>
     <string name="action_open_wifi">Открыть Wi‑Fi</string>
     <string name="action_open_wifi_settings">Настройки Wi‑Fi</string>
+    <string name="action_reregister">Зарегистрировать снова</string>
     <string name="action_open_location">Геолокация</string>
     <string name="action_grant">Разрешить</string>
     <string name="action_battery">Исключение батареи</string>
@@ -117,6 +120,11 @@
     <string name="event_auth_failure">Ошибка подключения к подсказке</string>
     <string name="event_backoff">Три ошибки телефона, сеть грузовика не убираем</string>
     <string name="event_suggestions">Список подсказок изменён</string>
+    <string name="event_suggestion_status">Статус регистрации подсказок</string>
+    <string name="event_approval">Подтверждение подсказок</string>
+    <string name="event_scan">Сканирование</string>
+    <string name="event_decision">Решение</string>
+    <string name="event_password_missing">Нет пароля</string>
     <string name="event_wifi_off">Wi‑Fi выключен</string>
     <string name="event_wifi_on">Wi‑Fi включён</string>
     <string name="event_target_phone">Цель: телефон</string>

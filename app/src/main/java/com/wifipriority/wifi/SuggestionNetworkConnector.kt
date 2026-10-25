@@ -101,56 +101,99 @@ class SuggestionNetworkConnector(
     }
 
     @SuppressLint("MissingPermission")
+    override suspend fun registeredSsids(): Set<String> = withContext(Dispatchers.IO) {
+        currentSsids()
+    }
+
+    @SuppressLint("MissingPermission")
     override suspend fun applySuggestions(
         suggestions: List<PlannedSuggestion>,
         disconnectSsids: Set<String>,
         force: Boolean,
-    ): SuggestionCommit {
+    ): SuggestionApplyReport {
         val key = suggestionContentKey(suggestions)
         return mutex.withLock {
-            if (!force && key == appliedKey && disconnectSsids.isEmpty()) return SuggestionCommit.APPLIED
-            val commit = withContext(Dispatchers.IO) {
+            if (!force && key == appliedKey && disconnectSsids.isEmpty()) {
+                val registered = withContext(Dispatchers.IO) { currentSsids() }
+                if (!needsPlatformReadd(suggestions, registered)) {
+                    return SuggestionApplyReport(
+                        commit = SuggestionCommit.APPLIED,
+                        registeredSsids = registered,
+                    )
+                }
+            }
+            val report = withContext(Dispatchers.IO) {
                 replace(suggestions, disconnectSsids)
             }
-            if (commit == SuggestionCommit.APPLIED) appliedKey = key else appliedKey = null
-            commit
+            if (report.commit == SuggestionCommit.APPLIED) appliedKey = key else appliedKey = null
+            report
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun replace(planned: List<PlannedSuggestion>, disconnectSsids: Set<String>): SuggestionCommit {
-        val existing = wifiManager.networkSuggestions
-        val kick = existing.filter { it.safeSsid() in disconnectSsids }
-        val rest = existing.filter { it.safeSsid() !in disconnectSsids }
-        if (kick.isNotEmpty()) {
-            wifiManager.removeNetworkSuggestions(kick, WifiManager.ACTION_REMOVE_SUGGESTION_DISCONNECT)
+    private fun replace(planned: List<PlannedSuggestion>, disconnectSsids: Set<String>): SuggestionApplyReport {
+        return try {
+            registerSuggestions(platform(), planned, disconnectSsids)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "suggestion update missing CHANGE_WIFI_STATE or ACCESS_WIFI_STATE")
+            SuggestionApplyReport(
+                commit = SuggestionCommit.FAILED,
+                registeredSsids = emptySet(),
+            )
         }
-        if (rest.isNotEmpty()) {
-            wifiManager.removeNetworkSuggestions(rest)
-        }
-        if (planned.isEmpty()) return SuggestionCommit.APPLIED
-        val built = planned.map { suggestion ->
-            val builder = WifiNetworkSuggestion.Builder()
-                .setSsid(suggestion.ssid)
-                .setPriority(suggestion.priority)
-                .setPriorityGroup(suggestion.priorityGroup)
-            when (suggestion.security) {
-                WifiSecurity.WPA3 -> builder.setWpa3Passphrase(suggestion.passphrase)
-                WifiSecurity.OPEN -> Unit
-                WifiSecurity.WPA2, WifiSecurity.UNKNOWN, WifiSecurity.TRANSITION ->
-                    builder.setWpa2Passphrase(suggestion.passphrase)
+    }
+
+    private fun platform(): SuggestionPlatform = object : SuggestionPlatform {
+        override fun currentSsids(): Set<String> = this@SuggestionNetworkConnector.currentSsids()
+
+        override fun add(suggestions: List<PlannedSuggestion>): Int {
+            val built = try {
+                suggestions.map(::buildSuggestion)
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "suggestion builder rejected a network")
+                return WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_INVALID
             }
-            builder.build()
+            val status = wifiManager.addNetworkSuggestions(built)
+            if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS &&
+                status != WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_DUPLICATE
+            ) {
+                Log.w(TAG, "addNetworkSuggestions status $status")
+            }
+            addStatus.value = status
+            noteAddStatus(status)
+            return status
         }
-        val status = wifiManager.addNetworkSuggestions(built)
-        if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS &&
-            status != WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_DUPLICATE
-        ) {
-            Log.w(TAG, "addNetworkSuggestions status $status")
+
+        override fun remove(ssids: Set<String>, disconnect: Boolean): Int {
+            val matching = wifiManager.networkSuggestions.filter { it.safeSsid() in ssids }
+            if (matching.isEmpty()) return WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS
+            val status = if (disconnect) {
+                wifiManager.removeNetworkSuggestions(matching, WifiManager.ACTION_REMOVE_SUGGESTION_DISCONNECT)
+            } else {
+                wifiManager.removeNetworkSuggestions(matching)
+            }
+            if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
+                Log.w(TAG, "removeNetworkSuggestions status $status")
+            }
+            return status
         }
-        addStatus.value = status
-        noteAddStatus(status)
-        return suggestionCommitFor(suggestionAddKind(status), removedOnly = false)
+    }
+
+    private fun currentSsids(): Set<String> =
+        wifiManager.networkSuggestions.mapNotNull { it.safeSsid() }.toSet()
+
+    private fun buildSuggestion(suggestion: PlannedSuggestion): WifiNetworkSuggestion {
+        val builder = WifiNetworkSuggestion.Builder()
+            .setSsid(suggestion.ssid)
+            .setPriority(suggestion.priority)
+            .setPriorityGroup(suggestion.priorityGroup)
+        when (suggestion.security) {
+            WifiSecurity.WPA3 -> builder.setWpa3Passphrase(suggestion.passphrase)
+            WifiSecurity.OPEN -> Unit
+            WifiSecurity.WPA2, WifiSecurity.UNKNOWN, WifiSecurity.TRANSITION ->
+                builder.setWpa2Passphrase(suggestion.passphrase)
+        }
+        return builder.build()
     }
 
     private fun noteAddStatus(status: Int) {
