@@ -94,6 +94,7 @@ class PriorityService : Service() {
 
     private suspend fun disableAndStop() {
         val current = runtime ?: WifiStack.appRuntime(this).also { runtime = it }
+        current.connector.applySuggestions(emptyList(), emptySet(), force = true)
         current.connector.applyTarget(WifiTarget.NONE)
         current.suggestionConnector?.stop()
         loopJob?.cancel()

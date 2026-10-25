@@ -1,25 +1,33 @@
 package com.wifipriority
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.os.Bundle
-import androidx.core.content.edit
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
-import com.wifipriority.ui.SettingsScreen
-import com.wifipriority.ui.SettingsViewModel
+import androidx.core.content.edit
+import com.wifipriority.ui.AppViewModel
+import com.wifipriority.ui.AppViewModelFactory
+import com.wifipriority.ui.BannerId
+import com.wifipriority.ui.WifiApp
+import com.wifipriority.ui.appDetailsIntent
+import com.wifipriority.ui.autoRevokeIntent
 import com.wifipriority.ui.batteryOptimizationIntent
+import com.wifipriority.ui.locationSettingsIntent
+import com.wifipriority.ui.wifiPanelIntent
+import com.wifipriority.ui.wifiSettingsIntent
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: SettingsViewModel by viewModels()
+    private val viewModel: AppViewModel by viewModels { AppViewModelFactory(application) }
     private var askedBattery = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        viewModel.refreshWarnings()
+        viewModel.refreshSignals()
         maybeAskBatteryOptimization()
     }
 
@@ -27,7 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                SettingsScreen(viewModel)
+                WifiApp(viewModel, onFix = ::onFix)
             }
         }
         val missing = StartupPermissions.missing(this)
@@ -40,7 +48,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refreshWarnings()
+        viewModel.refreshSignals()
+    }
+
+    private fun onFix(banner: BannerId) {
+        when (banner) {
+            BannerId.WIFI_OFF, BannerId.SAVED_NETWORK_BLOCKS -> startActivity(wifiPanelIntent())
+            BannerId.FINE_LOCATION -> permissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
+            BannerId.NEARBY_WIFI -> permissionLauncher.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES))
+            BannerId.NOTIFICATIONS -> permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            BannerId.LOCATION_OFF -> startActivity(locationSettingsIntent())
+            BannerId.SUGGESTIONS -> startActivity(wifiSettingsIntent())
+            BannerId.BATTERY -> startActivity(batteryOptimizationIntent(this))
+            BannerId.AUTO_REVOKE -> startActivity(autoRevokeIntent(this))
+            BannerId.SAMSUNG_NEVER_SLEEPING -> startActivity(appDetailsIntent(this))
+            BannerId.SERVICE_DISABLED,
+            BannerId.CANNOT_CONNECT_PHONE,
+            BannerId.WRONG_PASSWORD,
+            BannerId.PHONE_PASSPHRASE,
+            BannerId.TRUCK_PASSPHRASE,
+            -> Unit
+        }
     }
 
     @SuppressLint("BatteryLife")

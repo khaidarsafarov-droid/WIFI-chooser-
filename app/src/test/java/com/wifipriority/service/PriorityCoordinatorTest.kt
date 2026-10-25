@@ -46,6 +46,7 @@ class PriorityCoordinatorTest {
         assertEquals(listOf(WifiTarget.PHONE, WifiTarget.TRUCK), connector.appliedTargets())
         assertEquals(WifiTarget.TRUCK, status.value.target)
         assertEquals(TRUCK_SSID, status.value.connectedSsid)
+        assertEquals(setOf(TRUCK_SSID), status.value.visibleSsids)
         assertTrue(status.value.wifiEnabled)
     }
 

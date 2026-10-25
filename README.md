@@ -35,9 +35,13 @@ adb install -r app/build/outputs/apk/real/debug/app-real-debug.apk
 ```
 
 4. Open **WiFi Priority**. Grant location, nearby Wi-Fi devices, and notifications. Accept the battery-optimization exemption when Android asks.
-5. Enter the phone hotspot SSID and WPA2 password, then the truck hotspot SSID and password (at least 8 characters). Turn **Keep priority running** on and tap **Save**.
-6. Approve the system prompt that lets this app suggest Wi-Fi networks. If you dismiss it, the app notification opens Wi-Fi settings so you can allow suggestions.
-7. If Wi-Fi is off, the status notification has a button that opens the Wi-Fi panel. The app cannot turn Wi-Fi on itself.
+5. If no networks are saved, the app opens settings. Enter the phone hotspot SSID and WPA2 password, then the truck hotspot SSID and password (at least 8 characters). Turn **Keep priority running** on and tap **Save**. The app returns to the status screen.
+6. Approve the system prompt that lets this app suggest Wi-Fi networks. If you dismiss it, the banner opens Wi-Fi settings.
+7. If the truck network was saved by hand in Android Wi-Fi settings, forget it there. A saved network outranks suggestions, so the tablet can stay on the truck even when the phone is visible. The status screen shows that banner.
+8. On the Galaxy Tab S10 Ultra (One UI 8.5): Settings → Battery and device care → Battery → Background usage limits → Never sleeping apps → add WiFi Priority. Turn off Intelligent Wi-Fi → Auto switch to mobile data.
+9. If Wi-Fi is off, the banner and the status notification open the Wi-Fi panel. The app cannot turn Wi-Fi on itself.
+
+The truck suggestion stays registered except for a 30-second return to the phone. That window ends as soon as the phone disappears. If the phone has no validated internet for 2 minutes, the app drops back to the truck. A local log of the last 500 events is in Diagnostics.
 
 ## Priority rules
 
