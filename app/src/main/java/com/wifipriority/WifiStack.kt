@@ -7,6 +7,7 @@ import com.wifipriority.mock.FakeNetworkConnector
 import com.wifipriority.mock.InMemoryCredentialStore
 import com.wifipriority.mock.MockScanSource
 import com.wifipriority.mock.MockScenario
+import com.wifipriority.service.AppStores
 import com.wifipriority.service.PriorityCoordinator
 import com.wifipriority.service.PriorityStatusRepository
 import com.wifipriority.wifi.Clock
@@ -66,7 +67,7 @@ object WifiStack {
             connector = FakeNetworkConnector(credentials)
             scans = ConfigBackedMockScanSource(credentials, clock)
         } else {
-            val real = SuggestionNetworkConnector(context, credentials)
+            val real = SuggestionNetworkConnector(context)
             suggestion = real
             connector = real
             scans = WifiScanSource(context, clock)
@@ -78,6 +79,9 @@ object WifiStack {
             engine = PriorityEngine(clock),
             status = PriorityStatusRepository.status,
             approval = suggestion?.approvalState ?: flowOf(SuggestionApproval.UNKNOWN),
+            clock = clock,
+            policyStore = AppStores.policy(context),
+            eventLog = AppStores.events(context),
         )
         return AppRuntime(
             credentials = credentials,

@@ -13,6 +13,8 @@ data class ScanSnapshot(
     val timestampMillis: Long,
     /** False when the radio is off. Those snapshots must not advance the engine. */
     val wifiEnabled: Boolean = true,
+    /** Security parsed from scan capabilities, keyed by SSID. Empty for mocks. */
+    val securityBySsid: Map<String, WifiSecurity> = emptyMap(),
 )
 
 /**

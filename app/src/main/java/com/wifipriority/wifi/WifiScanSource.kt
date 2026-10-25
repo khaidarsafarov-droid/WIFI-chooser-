@@ -51,9 +51,16 @@ class WifiScanSource(
                 delay(intervalMillis)
                 continue
             }
-            val ssids = awaitFreshResults()
-            if (ssids != null) {
-                emit(ScanSnapshot(ssids, clock.nowMillis(), wifiEnabled = true))
+            val read = awaitFreshResults()
+            if (read != null) {
+                emit(
+                    ScanSnapshot(
+                        visibleSsids = read.ssids,
+                        timestampMillis = clock.nowMillis(),
+                        wifiEnabled = true,
+                        securityBySsid = read.security,
+                    ),
+                )
             }
             delay(intervalMillis)
         }
@@ -71,19 +78,19 @@ class WifiScanSource(
      * Returns null when the platform refused the scan or the results are stale.
      */
     @SuppressLint("MissingPermission")
-    private suspend fun awaitFreshResults(): Set<String>? {
+    private suspend fun awaitFreshResults(): ScanRead? {
         val fresh = withTimeoutOrNull(scanTimeoutMillis) {
             suspendCancellableCoroutine { cont ->
                 lateinit var receiver: BroadcastReceiver
-                fun finish(ssids: Set<String>?) {
+                fun finish(read: ScanRead?) {
                     unregister(receiver)
-                    if (cont.isActive) cont.resume(ssids)
+                    if (cont.isActive) cont.resume(read)
                 }
                 receiver = object : BroadcastReceiver() {
                     override fun onReceive(ctx: Context, intent: Intent) {
                         if (intent.action != WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) return
                         val updated = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false)
-                        finish(if (updated) readSsids() else null)
+                        finish(if (updated) readScan() else null)
                     }
                 }
                 val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
@@ -113,12 +120,19 @@ class WifiScanSource(
     }
 
     @SuppressLint("MissingPermission")
-    private fun readSsids(): Set<String> {
+    private fun readScan(): ScanRead {
         return try {
-            wifiManager.scanResults.mapNotNull { it.visibleSsid() }.toSet()
+            val security = linkedMapOf<String, WifiSecurity>()
+            val ssids = linkedSetOf<String>()
+            for (result in wifiManager.scanResults) {
+                val ssid = result.visibleSsid() ?: continue
+                ssids += ssid
+                security[ssid] = mergeSecurity(security[ssid], securityFromCapabilities(result.capabilities))
+            }
+            ScanRead(ssids, security)
         } catch (error: SecurityException) {
             Log.w(TAG, "getScanResults was rejected")
-            emptySet()
+            ScanRead(emptySet(), emptyMap())
         }
     }
 
@@ -141,6 +155,11 @@ class WifiScanSource(
         )
     }
 }
+
+private data class ScanRead(
+    val ssids: Set<String>,
+    val security: Map<String, WifiSecurity>,
+)
 
 private fun ScanResult.visibleSsid(): String? {
     val wifiSsid = wifiSsid ?: return null

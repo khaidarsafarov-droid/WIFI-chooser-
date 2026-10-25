@@ -1,19 +1,18 @@
 package com.wifipriority.wifi
 
 /**
- * Decides which suggestions to register.
- *
- * Both hotspots are registered in the normal case. Phone uses a higher
- * [priorityGroup] and [priority] than truck (larger value wins on API 33+
- * `setPriorityGroup` / `setPriority`). The system can then fail over to the
- * truck as soon as the phone disappears.
- *
- * When the engine target is [WifiTarget.PHONE] but the device is associated to
- * the truck, the truck suggestion is removed until the phone SSID is the
- * connected network. That forces the return the priority values alone did not.
- * While that removal is in effect, a null connected SSID keeps the truck
- * removed so it is not re-added during the roam.
+ * One network the connector should register. [passphrase] is empty for [WifiSecurity.OPEN].
+ * Never log this value.
  */
+data class PlannedSuggestion(
+    val role: WifiTarget,
+    val ssid: String,
+    val passphrase: String,
+    val priority: Int,
+    val priorityGroup: Int,
+    val security: WifiSecurity = WifiSecurity.WPA2,
+)
+
 object SuggestionPlanner {
     const val PHONE_PRIORITY: Int = 100
     const val TRUCK_PRIORITY: Int = 0
@@ -21,61 +20,18 @@ object SuggestionPlanner {
     const val TRUCK_GROUP: Int = 0
     const val MIN_PASSPHRASE_LENGTH: Int = 8
 
-    data class PlannedSuggestion(
-        val role: WifiTarget,
-        val ssid: String,
-        val passphrase: String,
-        val priority: Int,
-        val priorityGroup: Int,
-    )
+    /** Truck is removed only inside this window, and only while the phone is still visible. */
+    const val FORCE_RETURN_MAX_MILLIS: Long = 30_000L
 
-    data class Plan(
-        val suppressingTruck: Boolean,
-        val suggestions: List<PlannedSuggestion>,
-    )
+    /** No validated internet for this long triggers the watchdog. */
+    const val UNVALIDATED_LIMIT_MILLIS: Long = 120_000L
 
-    fun plan(
-        target: WifiTarget,
-        connectedSsid: String?,
-        config: PriorityConfig,
-        suppressingTruck: Boolean,
-    ): Plan {
-        if (target == WifiTarget.NONE) {
-            return Plan(suppressingTruck = false, suggestions = emptyList())
-        }
-        val phone = usable(config.phone, WifiTarget.PHONE, PHONE_PRIORITY, PHONE_GROUP)
-        val truck = usable(config.truck, WifiTarget.TRUCK, TRUCK_PRIORITY, TRUCK_GROUP)
-        val onPhone = phone != null && connectedSsid == phone.ssid
-        val onTruck = truck != null && connectedSsid == truck.ssid
-        val suppress = when {
-            target != WifiTarget.PHONE -> false
-            phone == null || truck == null -> false
-            onPhone -> false
-            onTruck -> true
-            else -> suppressingTruck
-        }
-        val suggestions = buildList {
-            if (phone != null) add(phone)
-            if (truck != null && !suppress) add(truck)
-        }
-        return Plan(suppressingTruck = suppress, suggestions = suggestions)
-    }
+    /** After this many phone auth failures, stop pulling the truck suggestion. */
+    const val PHONE_FAILURES_BEFORE_BACKOFF: Int = 3
 
-    private fun usable(
-        credential: NetworkCredential?,
-        role: WifiTarget,
-        priority: Int,
-        priorityGroup: Int,
-    ): PlannedSuggestion? {
-        val ssid = credential?.ssid?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val passphrase = credential.password
-        if (passphrase.length < MIN_PASSPHRASE_LENGTH) return null
-        return PlannedSuggestion(
-            role = role,
-            ssid = ssid,
-            passphrase = passphrase,
-            priority = priority,
-            priorityGroup = priorityGroup,
-        )
-    }
+    /** How long a failed phone attempt or a phone-without-internet drop leaves the truck alone. */
+    const val BACKOFF_MILLIS: Long = 10 * 60_000L
+
+    /** Connected without a post-connection broadcast for this long means it is not our suggestion. */
+    const val SUGGESTION_GRACE_MILLIS: Long = 8_000L
 }

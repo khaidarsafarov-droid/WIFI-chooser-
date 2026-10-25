@@ -10,7 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -27,16 +26,18 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.wifipriority.R
-import com.wifipriority.service.PriorityStatus
-import com.wifipriority.wifi.WifiTarget
-import java.text.DateFormat
-import java.util.Date
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel) {
+fun SettingsScreen(
+    viewModel: AppViewModel,
+    onBack: () -> Unit,
+    onFix: (BannerId) -> Unit,
+) {
     val form by viewModel.form.collectAsState()
-    val status by viewModel.status.collectAsState()
-    val warnings by viewModel.warnings.collectAsState()
+    val banners by viewModel.banners.collectAsState()
+    val formBanners = passphraseBanners(form.phonePassword, form.truckPassword)
+    val shown = (banners.filter { it != BannerId.PHONE_PASSPHRASE && it != BannerId.TRUCK_PASSPHRASE } + formBanners)
+        .distinct()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -44,18 +45,13 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(text = stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
-        StatusCard(status)
-        if (warnings.isNotEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = stringResource(R.string.warnings_title), style = MaterialTheme.typography.titleMedium)
-                    warnings.forEach { warning ->
-                        Text(text = warning, color = MaterialTheme.colorScheme.error)
-                    }
-                }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) {
+                Text(text = stringResource(R.string.back))
             }
+            Text(text = stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium)
         }
+        BannerList(banners = shown, onFix = onFix, onDismissSamsung = viewModel::dismissSamsungHint)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -86,36 +82,6 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
         )
         Button(onClick = viewModel::save, modifier = Modifier.fillMaxWidth()) {
             Text(text = stringResource(R.string.save))
-        }
-        form.message?.let { message ->
-            Text(text = message, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun StatusCard(status: PriorityStatus) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(text = stringResource(R.string.status_title), style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = stringResource(
-                    R.string.status_network,
-                    status.connectedSsid ?: stringResource(R.string.target_none),
-                ),
-            )
-            Text(
-                text = stringResource(
-                    R.string.status_target,
-                    targetLabel(status.target),
-                ),
-            )
-            Text(
-                text = stringResource(
-                    R.string.status_switch,
-                    formatSwitch(status.lastSwitchTimeMillis),
-                ),
-            )
         }
     }
 }
@@ -152,16 +118,4 @@ private fun CredentialFields(
             }
         },
     )
-}
-
-@Composable
-private fun targetLabel(target: WifiTarget): String = when (target) {
-    WifiTarget.PHONE -> stringResource(R.string.target_phone)
-    WifiTarget.TRUCK -> stringResource(R.string.target_truck)
-    WifiTarget.NONE -> stringResource(R.string.target_none)
-}
-
-private fun formatSwitch(millis: Long?): String {
-    if (millis == null) return "—"
-    return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 }
