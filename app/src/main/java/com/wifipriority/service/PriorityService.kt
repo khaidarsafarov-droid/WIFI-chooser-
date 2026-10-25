@@ -8,12 +8,14 @@ import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.wifipriority.WifiStack
+import com.wifipriority.wifi.EnabledLatch
 import com.wifipriority.wifi.WifiTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
@@ -24,13 +26,24 @@ import kotlinx.coroutines.launch
  * `location` would describe a location tracker, which this app is not, and
  * `specialUse` expects a Play Console declaration this sideloaded app does not have.
  *
- * The loop is a coroutine delay between scans. It does not hold a wakelock.
+ * `connectedDevice` is not one of the types Android 15/16 limits to 6 hours
+ * (`dataSync`, `mediaProcessing`), and it is not on the `BOOT_COMPLETED` denylist
+ * (`dataSync`, `camera`, `mediaPlayback`, `phoneCall`, `mediaProjection`,
+ * `microphone`). [startForeground] runs before any disk read so the
+ * `startForegroundService` timer is met. One UI can still freeze the process
+ * if the app is a sleeping app; the status screen asks for the battery exemption
+ * and the never-sleeping list.
+ *
+ * The scan loop is a coroutine delay. It does not hold a wakelock. A partial
+ * wakelock is held only while a recovery deadline (force-return, unvalidated
+ * watchdog, or a failed suggestion add) is pending.
  */
 class PriorityService : Service() {
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.Default)
     private var loopJob: Job? = null
     private var runtime: WifiStack.AppRuntime? = null
+    private val gate = ServiceRunGate()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,15 +61,23 @@ class PriorityService : Service() {
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
-        } catch (security: SecurityException) {
+        } catch (error: Exception) {
+            if (!isForegroundStartBlocked(error)) throw error
             stopSelf()
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_DISABLE) {
-            scope.launch { disableAndStop() }
+            val token = gate.onDisable()
+            scope.launch {
+                disableAndStop(token)
+                if (gate.shouldEnsureLoop(loopJob?.isActive == true)) {
+                    loopJob = scope.launch { runLoop() }
+                }
+            }
             return START_NOT_STICKY
         }
-        if (loopJob == null) {
+        gate.onStart()
+        if (gate.shouldEnsureLoop(loopJob?.isActive == true)) {
             loopJob = scope.launch { runLoop() }
         }
         return START_STICKY
@@ -70,34 +91,52 @@ class PriorityService : Service() {
     }
 
     private suspend fun runLoop() {
-        val created = WifiStack.appRuntime(this)
+        val token = gate.current()
+        val waits = DeadlineWait(this)
+        runtime?.suggestionConnector?.stop()
+        val created = WifiStack.appRuntime(this, awaitDeadline = waits::await)
         runtime = created
         val config = created.credentials.load()
+        EnabledLatch.write(this, config.enabled)
         if (!shouldStartService(config.enabled)) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            if (gate.isCurrent(token)) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
             return
         }
         created.suggestionConnector?.start()
-        scope.launch {
-            PriorityStatusRepository.status.collect { status ->
-                val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                manager.notify(
-                    PriorityNotifications.STATUS_ID,
-                    PriorityNotifications.statusNotification(this@PriorityService, status),
-                )
-                PriorityNotifications.updateApproval(this@PriorityService, status)
+        coroutineScope {
+            val notes = launch {
+                PriorityStatusRepository.status.collect { status ->
+                    val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                    manager.notify(
+                        PriorityNotifications.STATUS_ID,
+                        PriorityNotifications.statusNotification(this@PriorityService, status),
+                    )
+                    PriorityNotifications.updateApproval(this@PriorityService, status)
+                }
+            }
+            try {
+                created.coordinator.run()
+            } finally {
+                notes.cancel()
             }
         }
-        created.coordinator.run()
     }
 
-    private suspend fun disableAndStop() {
+    private suspend fun disableAndStop(token: Int) {
+        if (!gate.shouldStop(token)) return
         val current = runtime ?: WifiStack.appRuntime(this).also { runtime = it }
+        if (!gate.shouldStop(token)) return
         current.connector.applySuggestions(emptyList(), emptySet(), force = true)
         current.connector.applyTarget(WifiTarget.NONE)
         current.suggestionConnector?.stop()
         loopJob?.cancel()
+        if (!gate.shouldStop(token)) {
+            loopJob = scope.launch { runLoop() }
+            return
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

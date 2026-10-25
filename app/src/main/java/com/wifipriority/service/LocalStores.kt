@@ -95,6 +95,7 @@ internal fun encodePolicy(state: PolicyState): String = buildString {
     appendLine("suppressPhoneUntil=${state.suppressPhoneUntil ?: ""}")
     appendLine("unvalidatedSince=${state.unvalidatedSince ?: ""}")
     appendLine("phoneUnvalidatedSince=${state.phoneUnvalidatedSince ?: ""}")
+    appendLine("disconnectRetryAt=${state.disconnectRetryAt ?: ""}")
     appendLine("lastFailureSsid=${state.lastFailureSsid.orEmpty()}")
     appendLine("lastFailureReason=${state.lastFailureReason?.name.orEmpty()}")
     appendLine("suggestionSignature=${state.suggestionSignature}")
@@ -112,6 +113,7 @@ internal fun decodePolicy(text: String): PolicyState {
         suppressPhoneUntil = map["suppressPhoneUntil"]?.toLongOrNull(),
         unvalidatedSince = map["unvalidatedSince"]?.toLongOrNull(),
         phoneUnvalidatedSince = map["phoneUnvalidatedSince"]?.toLongOrNull(),
+        disconnectRetryAt = map["disconnectRetryAt"]?.toLongOrNull(),
         lastFailureSsid = map["lastFailureSsid"]?.takeIf { it.isNotEmpty() },
         lastFailureReason = map["lastFailureReason"]?.takeIf { it.isNotEmpty() }?.let {
             runCatching { FailureReason.valueOf(it) }.getOrNull()

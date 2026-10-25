@@ -11,7 +11,10 @@ data class PlannedSuggestion(
     val priority: Int,
     val priorityGroup: Int,
     val security: WifiSecurity = WifiSecurity.WPA2,
-)
+) {
+    override fun toString(): String =
+        "PlannedSuggestion(role=$role, ssid=$ssid, passphrase=***, priority=$priority, priorityGroup=$priorityGroup, security=$security)"
+}
 
 object SuggestionPlanner {
     const val PHONE_PRIORITY: Int = 100
@@ -34,4 +37,10 @@ object SuggestionPlanner {
 
     /** Connected without a post-connection broadcast for this long means it is not our suggestion. */
     const val SUGGESTION_GRACE_MILLIS: Long = 8_000L
+
+    /** Re-ask the platform to leave an unvalidated phone while that suggestion is suppressed. */
+    const val DISCONNECT_RETRY_MILLIS: Long = 30_000L
+
+    /** Try addNetworkSuggestions again after a transient failure. */
+    const val SUGGESTION_RETRY_MILLIS: Long = 30_000L
 }

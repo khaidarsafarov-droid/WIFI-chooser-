@@ -297,6 +297,7 @@ private fun eventKindText(kind: LogKind): Int = when (kind) {
     LogKind.FORCE_RETURN_TIMEOUT -> R.string.event_force_timeout
     LogKind.WATCHDOG_RESET -> R.string.event_watchdog
     LogKind.WATCHDOG_DROP_PHONE -> R.string.event_drop_phone
+    LogKind.DISCONNECT_RETRY -> R.string.event_disconnect_retry
     LogKind.PHONE_AUTH_FAILURE -> R.string.event_auth_failure
     LogKind.PHONE_BACKOFF -> R.string.event_backoff
     LogKind.SUGGESTIONS_CHANGED -> R.string.event_suggestions

@@ -55,15 +55,17 @@ object SuggestionPolicy {
             )
         }
 
-        next = if (validatedLink) {
-            next.copy(unvalidatedSince = null)
-        } else {
-            next.copy(unvalidatedSince = next.unvalidatedSince ?: nowMillis)
-        }
-        next = if (onPhone && !observation.validated) {
-            next.copy(phoneUnvalidatedSince = next.phoneUnvalidatedSince ?: nowMillis)
-        } else {
-            next.copy(phoneUnvalidatedSince = null)
+        if (observation.linkKnown) {
+            next = if (validatedLink) {
+                next.copy(unvalidatedSince = null)
+            } else {
+                next.copy(unvalidatedSince = next.unvalidatedSince ?: nowMillis)
+            }
+            next = if (onPhone && !observation.validated) {
+                next.copy(phoneUnvalidatedSince = next.phoneUnvalidatedSince ?: nowMillis)
+            } else {
+                next.copy(phoneUnvalidatedSince = null)
+            }
         }
 
         val phoneTooLong = next.phoneUnvalidatedSince != null &&
@@ -110,6 +112,19 @@ object SuggestionPolicy {
             !backoff &&
             !phoneHeldDown &&
             next.suppressPhoneUntil == null
+
+        val phoneSuppressed = next.suppressPhoneUntil != null && nowMillis < next.suppressPhoneUntil!!
+        if (phoneSuppressed && onPhone && !observation.validated) {
+            val phone = observation.connectedSsid.orEmpty()
+            val due = next.disconnectRetryAt
+            if (phone.isNotEmpty() && (due == null || nowMillis >= due)) {
+                disconnect = disconnect + phone
+                next = next.copy(disconnectRetryAt = nowMillis + SuggestionPlanner.DISCONNECT_RETRY_MILLIS)
+                events += LogEvent(nowMillis, LogKind.DISCONNECT_RETRY, phone)
+            }
+        } else if (!onPhone || observation.validated) {
+            next = next.copy(disconnectRetryAt = null)
+        }
 
         if (next.forceReturnSince != null) {
             val elapsed = nowMillis - next.forceReturnSince!!
@@ -220,6 +235,8 @@ data class PolicyObservation(
     val fromOurSuggestion: Boolean?,
     /** One failure since the previous evaluation. Null on ordinary scans. */
     val authFailure: ConnectionFailure? = null,
+    /** False before the first link callback. Does not start the unvalidated clock. */
+    val linkKnown: Boolean = true,
 )
 
 data class ConnectionFailure(
@@ -241,6 +258,8 @@ data class PolicyState(
     val suppressPhoneUntil: Long? = null,
     val unvalidatedSince: Long? = null,
     val phoneUnvalidatedSince: Long? = null,
+    /** Next time to disconnect an unvalidated phone that is still associated. */
+    val disconnectRetryAt: Long? = null,
     val lastFailureSsid: String? = null,
     val lastFailureReason: FailureReason? = null,
     val suggestionSignature: String = "",
@@ -249,6 +268,16 @@ data class PolicyState(
         failureBackoffUntil = failureBackoffUntil?.takeIf { nowMillis < it },
         suppressPhoneUntil = suppressPhoneUntil?.takeIf { nowMillis < it },
     )
+}
+
+/** Earliest moment the coordinator must evaluate again even if nothing else changes. */
+fun PolicyState.recoveryDeadlineMillis(): Long? {
+    val times = ArrayList<Long>(4)
+    forceReturnSince?.let { times += it + SuggestionPlanner.FORCE_RETURN_MAX_MILLIS }
+    unvalidatedSince?.let { times += it + SuggestionPlanner.UNVALIDATED_LIMIT_MILLIS }
+    phoneUnvalidatedSince?.let { times += it + SuggestionPlanner.UNVALIDATED_LIMIT_MILLIS }
+    disconnectRetryAt?.let { times += it }
+    return times.minOrNull()
 }
 
 data class PolicyStep(
@@ -267,6 +296,7 @@ enum class LogKind {
     WATCHDOG_DROP_PHONE,
     PHONE_AUTH_FAILURE,
     PHONE_BACKOFF,
+    DISCONNECT_RETRY,
     SUGGESTIONS_CHANGED,
     WIFI_OFF,
     WIFI_ON,

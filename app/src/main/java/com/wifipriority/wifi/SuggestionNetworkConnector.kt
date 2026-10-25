@@ -44,7 +44,7 @@ class SuggestionNetworkConnector(
     private val wifiManager = appContext.getSystemService(WifiManager::class.java)
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
     private val connected = MutableStateFlow<String?>(null)
-    private val linkState = MutableStateFlow(LinkObservation())
+    private val linkState = MutableStateFlow(LinkTracker().snapshot())
     private val failures = MutableSharedFlow<ConnectionFailure>(extraBufferCapacity = 8)
     private val addStatus = MutableStateFlow<Int?>(null)
     private val approval = MutableStateFlow(SuggestionApproval.UNKNOWN)
@@ -53,9 +53,9 @@ class SuggestionNetworkConnector(
     private var approvalListener: WifiManager.SuggestionUserApprovalStatusListener? = null
     private var connectionListener: WifiManager.SuggestionConnectionStatusListener? = null
     private var postConnectionReceiver: BroadcastReceiver? = null
-    private var started = false
-    private var appliedSignature: String? = null
-    private var postedSsid: String? = null
+    private val listeners = ListenerGate()
+    private val links = LinkTracker()
+    @Volatile private var appliedKey: String? = null
 
     override val connectedSsid: Flow<String?> = connected.asStateFlow()
     override val link: Flow<LinkObservation> = linkState.asStateFlow()
@@ -64,15 +64,20 @@ class SuggestionNetworkConnector(
     val approvalState: StateFlow<SuggestionApproval> = approval.asStateFlow()
 
     fun start() {
-        if (started) return
-        started = true
-        registerCallback()
-        registerApprovalListener()
-        registerConnectionListener()
-        registerPostConnection()
+        if (!listeners.tryOpen()) return
+        try {
+            registerCallback()
+            registerApprovalListener()
+            registerConnectionListener()
+            registerPostConnection()
+        } catch (error: RuntimeException) {
+            stop()
+            throw error
+        }
     }
 
     fun stop() {
+        if (!listeners.close()) return
         callback?.let { active ->
             runCatching { connectivity.unregisterNetworkCallback(active) }
         }
@@ -100,21 +105,20 @@ class SuggestionNetworkConnector(
         suggestions: List<PlannedSuggestion>,
         disconnectSsids: Set<String>,
         force: Boolean,
-    ) {
-        val signature = suggestions.joinToString(",") {
-            "${it.role}:${it.ssid}:${it.security}:${it.priority}:${it.priorityGroup}"
-        }
-        mutex.withLock {
-            if (!force && signature == appliedSignature && disconnectSsids.isEmpty()) return
-            appliedSignature = signature
-            withContext(Dispatchers.IO) {
+    ): SuggestionCommit {
+        val key = suggestionContentKey(suggestions)
+        return mutex.withLock {
+            if (!force && key == appliedKey && disconnectSsids.isEmpty()) return SuggestionCommit.APPLIED
+            val commit = withContext(Dispatchers.IO) {
                 replace(suggestions, disconnectSsids)
             }
+            if (commit == SuggestionCommit.APPLIED) appliedKey = key else appliedKey = null
+            commit
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun replace(planned: List<PlannedSuggestion>, disconnectSsids: Set<String>) {
+    private fun replace(planned: List<PlannedSuggestion>, disconnectSsids: Set<String>): SuggestionCommit {
         val existing = wifiManager.networkSuggestions
         val kick = existing.filter { it.safeSsid() in disconnectSsids }
         val rest = existing.filter { it.safeSsid() !in disconnectSsids }
@@ -124,7 +128,7 @@ class SuggestionNetworkConnector(
         if (rest.isNotEmpty()) {
             wifiManager.removeNetworkSuggestions(rest)
         }
-        if (planned.isEmpty()) return
+        if (planned.isEmpty()) return SuggestionCommit.APPLIED
         val built = planned.map { suggestion ->
             val builder = WifiNetworkSuggestion.Builder()
                 .setSsid(suggestion.ssid)
@@ -146,6 +150,7 @@ class SuggestionNetworkConnector(
         }
         addStatus.value = status
         noteAddStatus(status)
+        return suggestionCommitFor(suggestionAddKind(status), removedOnly = false)
     }
 
     private fun noteAddStatus(status: Int) {
@@ -169,12 +174,12 @@ class SuggestionNetworkConnector(
                 val info = caps.transportInfo as? WifiInfo
                 val ssid = normalizePlatformSsid(info?.ssid)
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                publishLink(ssid, validated)
+                publish(links.onCapabilities(network, ssid, validated))
             }
 
             override fun onLost(network: Network) {
-                postedSsid = null
-                publishLink(null, validated = false)
+                val next = links.onLost(network) ?: return
+                publish(next)
             }
         }
         callback = networkCallback
@@ -188,7 +193,10 @@ class SuggestionNetworkConnector(
                 WifiManager.STATUS_SUGGESTION_APPROVAL_APPROVED_BY_CARRIER_PRIVILEGE,
                 -> SuggestionApproval.APPROVED
                 WifiManager.STATUS_SUGGESTION_APPROVAL_REJECTED_BY_USER,
-                -> SuggestionApproval.REJECTED
+                -> {
+                    appliedKey = null
+                    SuggestionApproval.REJECTED
+                }
                 WifiManager.STATUS_SUGGESTION_APPROVAL_PENDING,
                 -> SuggestionApproval.PENDING
                 else -> SuggestionApproval.UNKNOWN
@@ -221,8 +229,7 @@ class SuggestionNetworkConnector(
                     WifiManager.EXTRA_NETWORK_SUGGESTION,
                     WifiNetworkSuggestion::class.java,
                 ) ?: return
-                postedSsid = suggestion.safeSsid()
-                publishLink(connected.value, linkState.value.validated)
+                publish(links.onPosted(suggestion.safeSsid()))
             }
         }
         postConnectionReceiver = receiver
@@ -233,19 +240,9 @@ class SuggestionNetworkConnector(
         )
     }
 
-    private fun publishLink(ssid: String?, validated: Boolean) {
-        connected.value = ssid
-        val fromOurs = when {
-            ssid == null -> null
-            postedSsid != null && postedSsid == ssid -> true
-            postedSsid != null && postedSsid != ssid -> false
-            else -> null
-        }
-        linkState.value = LinkObservation(
-            connectedSsid = ssid,
-            validated = validated && ssid != null,
-            fromOurSuggestion = fromOurs,
-        )
+    private fun publish(observation: LinkObservation) {
+        connected.value = observation.connectedSsid
+        linkState.value = observation
     }
 
     private companion object {

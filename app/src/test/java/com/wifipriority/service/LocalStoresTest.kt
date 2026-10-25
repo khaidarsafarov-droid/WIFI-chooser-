@@ -33,6 +33,8 @@ class LocalStoresTest {
             forceReturnSince = 10L,
             phoneFailures = 3,
             failureBackoffUntil = 20L,
+            phoneUnvalidatedSince = 12L,
+            disconnectRetryAt = 30L,
             lastFailureSsid = "S26 ULTRA",
             lastFailureReason = FailureReason.AUTHENTICATION,
             suggestionSignature = "PHONE:S26 ULTRA:WPA2",

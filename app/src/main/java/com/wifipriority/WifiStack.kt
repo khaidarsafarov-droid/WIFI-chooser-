@@ -57,7 +57,11 @@ object WifiStack {
 
     fun credentialStore(context: Context): CredentialStore = KeystoreCredentialStore.create(context)
 
-    fun appRuntime(context: Context, clock: Clock = WallClock): AppRuntime {
+    fun appRuntime(
+        context: Context,
+        clock: Clock = WallClock,
+        awaitDeadline: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+    ): AppRuntime {
         val credentials = KeystoreCredentialStore.create(context)
         val suggestion: SuggestionNetworkConnector?
         val connector: NetworkConnector
@@ -82,6 +86,7 @@ object WifiStack {
             clock = clock,
             policyStore = AppStores.policy(context),
             eventLog = AppStores.events(context),
+            awaitDeadline = awaitDeadline,
         )
         return AppRuntime(
             credentials = credentials,
