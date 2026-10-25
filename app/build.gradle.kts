@@ -11,12 +11,21 @@ android {
         applicationId = "com.wifipriority"
         minSdk = 33
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
 
-        // Stage 1 ships only the mock Wi-Fi stack. A later stage replaces the
-        // bodies behind WifiStack when this flag is false.
-        buildConfigField("boolean", "USE_MOCK_WIFI", "true")
+    flavorDimensions += "stack"
+    productFlavors {
+        create("mock") {
+            dimension = "stack"
+            isDefault = true
+            buildConfigField("boolean", "USE_MOCK_WIFI", "true")
+        }
+        create("real") {
+            dimension = "stack"
+            buildConfigField("boolean", "USE_MOCK_WIFI", "false")
+        }
     }
 
     buildTypes {
@@ -36,13 +45,24 @@ android {
     }
 }
 
+// Flavors split the variant test tasks. Keep the stage-1 task name working:
+// `testDebugUnitTest` runs both the mock and real debug unit tests.
+tasks.register("testDebugUnitTest") {
+    group = "verification"
+    description = "Runs mockDebug and realDebug unit tests."
+    dependsOn("testMockDebugUnitTest", "testRealDebugUnitTest")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

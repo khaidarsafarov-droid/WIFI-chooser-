@@ -6,17 +6,27 @@ import com.wifipriority.mock.MockScanSource
 import com.wifipriority.mock.MockScenario
 import com.wifipriority.wifi.WallClock
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class WifiStackTest {
     @Test
     fun useMockWifi_defaultsToTrue() {
+        assumeTrue(BuildConfig.FLAVOR != "real")
         assertTrue(BuildConfig.USE_MOCK_WIFI)
     }
 
     @Test
+    fun useMockWifi_isFalseOnRealFlavor() {
+        assumeTrue(BuildConfig.FLAVOR == "real")
+        assertFalse(BuildConfig.USE_MOCK_WIFI)
+    }
+
+    @Test
     fun factories_returnMockImplementations() {
+        assumeTrue(BuildConfig.USE_MOCK_WIFI)
         val clock = WallClock
         val source = WifiStack.scanSource(clock, MockScenario.BOTH_VISIBLE, PHONE_SSID, TRUCK_SSID)
         val store = WifiStack.credentialStore(enabledConfig())

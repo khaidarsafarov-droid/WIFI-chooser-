@@ -2,32 +2,46 @@
 
 Personal Android app for a sideloaded tablet. It keeps the phone hotspot as Wi-Fi priority 1 and the truck hotspot as priority 2, based on which SSIDs are visible in scan results.
 
-This tree is **stage 1 only**:
+- `mock` flavor (`USE_MOCK_WIFI=true`): in-memory scan and connector, still uses the Keystore credential store on device
+- `real` flavor (`USE_MOCK_WIFI=false`): `WifiManager.startScan()`, `WifiNetworkSuggestion`, foreground service
 
-- interfaces for scanning, connecting, credentials, time, and scan throttling
-- a pure `PriorityEngine` state machine
-- in-memory mocks, with `BuildConfig.USE_MOCK_WIFI = true` by default
-- JVM unit tests
-- an empty Jetpack Compose activity so the app module compiles
-
-There is no real Wi-Fi stack, foreground service, or settings UI yet.
+`minSdk` 33, `compileSdk` / `targetSdk` 36.
 
 ## Build
 
-Requires JDK 17+, Android SDK platform 36, and build-tools 36.0.0. Point the build at the SDK with `ANDROID_HOME` or `local.properties` (`sdk.dir=`).
+Requires JDK 17+, Android SDK platform 36, and build-tools 36.0.0.
 
 ```bash
-./gradlew assembleDebug testDebugUnitTest
+./gradlew assembleDebug testDebugUnitTest lint
 ```
+
+Real debug APK:
+
+```bash
+./gradlew assembleRealDebug
+```
+
+The file is `app/build/outputs/apk/real/debug/app-real-debug.apk`.
+
+## Install the real APK over USB
+
+1. On the tablet, enable Developer options. Turn **Wi-Fi scan throttling** off. Leave Location on (Android hides SSIDs when location is off).
+2. Enable USB debugging and connect the tablet.
+3. Build and install:
+
+```bash
+./gradlew assembleRealDebug
+adb install -r app/build/outputs/apk/real/debug/app-real-debug.apk
+```
+
+4. Open **WiFi Priority**. Grant location, nearby Wi-Fi devices, and notifications. Accept the battery-optimization exemption when Android asks.
+5. Enter the phone hotspot SSID and WPA2 password, then the truck hotspot SSID and password (at least 8 characters). Turn **Keep priority running** on and tap **Save**.
+6. Approve the system prompt that lets this app suggest Wi-Fi networks. If you dismiss it, the app notification opens Wi-Fi settings so you can allow suggestions.
+7. If Wi-Fi is off, the status notification has a button that opens the Wi-Fi panel. The app cannot turn Wi-Fi on itself.
 
 ## Priority rules
 
-`PriorityEngine` is the source of truth:
-
-- phone SSID visible → target `PHONE` on that scan
-- phone missing for two consecutive scans and the truck SSID is visible → target `TRUCK`
-- a single miss → keep the current target
-- neither SSID visible → keep the last target, or `NONE` if none has been chosen
-- disabled, or no SSID configured → no actions and no bookkeeping
-
-Scans are planned every 45 seconds. `ScanThrottle` still refuses a fifth scan inside any two-minute window. Stage 1 does not call `WifiManager.startScan()`.
+- Phone SSID visible → target phone on that scan.
+- Phone missing for two scans and the truck SSID is visible → target truck (about 90 seconds at the 45-second cadence).
+- One miss → stay. Neither SSID visible → keep the last target, or none if none was chosen.
+- Both suggestions stay registered, phone at a higher priority, so the system can fail over to the truck. If the engine wants the phone while the tablet is still on the truck, the truck suggestion is removed until the phone is connected, then registered again.
