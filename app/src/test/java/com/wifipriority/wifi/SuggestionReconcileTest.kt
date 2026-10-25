@@ -83,6 +83,19 @@ class SuggestionReconcileTest {
         assertTrue(leaked.contains("IllegalStateException"))
         val scan = scanSummary(phone.ssid, truck.ssid, setOf(phone.ssid), fresh = false, wifiEnabled = true)
         assertEquals("refused phone=visible truck=absent", scan)
+        val cached = scanSummary(
+            phone.ssid,
+            truck.ssid,
+            setOf(truck.ssid),
+            fresh = false,
+            wifiEnabled = true,
+            refusal = ScanRefusal.NOT_UPDATED,
+            resultsAgeMillis = 5_000L,
+        )
+        assertEquals("cached reason=NOT_UPDATED age=5s phone=absent truck=visible", cached)
+        assertEquals(2_000L, newestScanAgeMillis(10_000L, listOf(1_000_000L, 8_000_000L)))
+        assertFalse(cachedResultsUsable(ScanPolicy.CACHED_RESULT_MAX_AGE_MILLIS + 1))
+        assertTrue(cachedResultsUsable(5_000L))
         assertTrue(passwordMissing(phone.ssid, null))
         assertTrue(passwordMissing(phone.ssid, ""))
         assertFalse(passwordMissing(phone.ssid, "phone-secret-value"))

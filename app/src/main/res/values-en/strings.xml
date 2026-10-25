@@ -131,4 +131,5 @@
     <string name="event_target_truck">Target: truck</string>
     <string name="event_target_none">Target: none</string>
     <string name="event_cycle_error">Cycle error</string>
+    <string name="event_scan_stale">Scan results are stale</string>
 </resources>

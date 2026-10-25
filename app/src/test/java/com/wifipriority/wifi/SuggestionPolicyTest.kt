@@ -23,6 +23,29 @@ class SuggestionPolicyTest {
     }
 
     @Test
+    fun alreadyOnPhone_doesNotStartForceReturn() {
+        val step = SuggestionPolicy.evaluate(PolicyState(), obs(connected = PHONE_SSID), 1_000L)
+        assertNull(step.state.forceReturnSince)
+        assertTrue(step.disconnectSsids.isEmpty())
+        assertTrue(step.suggestions.any { it.role == WifiTarget.TRUCK })
+        assertFalse(step.events.any { it.kind == LogKind.FORCE_RETURN_START })
+    }
+
+    @Test
+    fun validatedPhone_doesNotWatchdogReset() {
+        val armed = PolicyState(unvalidatedSince = 0L, forceReturnSince = 0L)
+        val step = SuggestionPolicy.evaluate(
+            armed,
+            obs(connected = PHONE_SSID, validated = true),
+            SuggestionPlanner.UNVALIDATED_LIMIT_MILLIS * 2,
+        )
+        assertFalse(step.events.any { it.kind == LogKind.WATCHDOG_RESET })
+        assertNull(step.state.unvalidatedSince)
+        assertNull(step.state.forceReturnSince)
+        assertTrue(step.suggestions.any { it.role == WifiTarget.TRUCK })
+    }
+
+    @Test
     fun phoneTargetWhileConnectedToTruck_startsShortForceReturn() {
         val step = SuggestionPolicy.evaluate(PolicyState(), obs(connected = TRUCK_SSID), 1_000L)
         assertEquals(listOf(WifiTarget.PHONE), step.suggestions.map { it.role })

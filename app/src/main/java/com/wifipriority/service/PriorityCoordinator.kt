@@ -22,6 +22,9 @@ import com.wifipriority.wifi.commitAfterInventory
 import com.wifipriority.wifi.cycleErrorDetail
 import com.wifipriority.wifi.missingSuggestionSsids
 import com.wifipriority.wifi.needsPlatformReadd
+import com.wifipriority.wifi.ScanPolicy
+import com.wifipriority.wifi.ScanRefusal
+import com.wifipriority.wifi.cachedResultsUsable
 import com.wifipriority.wifi.passwordMissing
 import com.wifipriority.wifi.scanSummary
 import com.wifipriority.wifi.suggestionStatusDetail
@@ -35,7 +38,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -74,6 +76,7 @@ class PriorityCoordinator(
         var visible = emptySet<String>()
         var security = emptyMap<String, WifiSecurity>()
         var lastScan: Long? = null
+        var lastTrustedAt: Long? = null
         var radioOn = true
         var addStatus: Int? = null
         var connectedSince: Long? = null
@@ -86,6 +89,10 @@ class PriorityCoordinator(
 
         suspend fun commit(authFailure: ConnectionFailure? = null, forceSuggestions: Boolean = false) {
             try {
+                link = connector.refreshLink()
+                if (link.connectedSsid != null && connectedSince == null) {
+                    connectedSince = clock.nowMillis()
+                }
                 val outcome = publish(
                     engineState, policyState, link, visible, security, lastScan, radioOn,
                     addStatus, connectedSince, postedSuggestionSsid, authFailure, forceSuggestions,
@@ -207,14 +214,39 @@ class PriorityCoordinator(
                             commit()
                             return@withLock
                         }
-                        if (!snapshot.fresh) {
+                        val now = clock.nowMillis()
+                        val trusted = snapshot.fresh || cachedResultsUsable(snapshot.resultsAgeMillis)
+                        if (!trusted) {
                             eventLog.append(listOf(LogEvent(
-                                clock.nowMillis(),
+                                now,
                                 LogKind.SCAN,
-                                scanLine(config.phoneSsid(), config.truckSsid(), visible, fresh = false, wifiEnabled = true),
+                                scanLine(
+                                    config.phoneSsid(),
+                                    config.truckSsid(),
+                                    visible,
+                                    fresh = false,
+                                    wifiEnabled = true,
+                                    refusal = snapshot.refusal,
+                                    resultsAgeMillis = snapshot.resultsAgeMillis,
+                                    platformThrottle = snapshot.platformThrottle,
+                                ) + " held",
                             )))
+                            val anchor = lastTrustedAt
+                            if (anchor != null && now - anchor >= ScanPolicy.STALE_AFTER_MILLIS) {
+                                visible = emptySet()
+                                security = emptyMap()
+                                val age = snapshot.resultsAgeMillis?.let { "${it / 1000}s" } ?: "unknown"
+                                val reason = snapshot.refusal?.name ?: "unknown"
+                                eventLog.append(listOf(LogEvent(
+                                    now,
+                                    LogKind.SCAN_STALE,
+                                    "reason=$reason age=$age",
+                                )))
+                                commit()
+                            }
                             return@withLock
                         }
+                        lastTrustedAt = now
                         radioOn = true
                         if (!wasRadioOn) {
                             eventLog.append(listOf(LogEvent(clock.nowMillis(), LogKind.WIFI_ON, "")))
@@ -225,7 +257,16 @@ class PriorityCoordinator(
                         eventLog.append(listOf(LogEvent(
                             clock.nowMillis(),
                             LogKind.SCAN,
-                            scanLine(config.phoneSsid(), config.truckSsid(), visible, fresh = true, wifiEnabled = true),
+                            scanLine(
+                                config.phoneSsid(),
+                                config.truckSsid(),
+                                visible,
+                                fresh = snapshot.fresh,
+                                wifiEnabled = true,
+                                refusal = snapshot.refusal,
+                                resultsAgeMillis = snapshot.resultsAgeMillis,
+                                platformThrottle = snapshot.platformThrottle,
+                            ),
                         )))
                         val step = engine.onScan(engineState, snapshot, config)
                         val previousTarget = engineState.target
@@ -245,10 +286,6 @@ class PriorityCoordinator(
                         }
                         if (config.enabled && step.decision.shouldApply) {
                             connector.applyTarget(step.decision.target)
-                        }
-                        link = connector.link.first()
-                        if (link.connectedSsid != null && connectedSince == null) {
-                            connectedSince = clock.nowMillis()
                         }
                         commit()
                     }
@@ -304,7 +341,7 @@ class PriorityCoordinator(
             connectedSsid = link.connectedSsid,
             visibleSsids = if (radioOn) visible else emptySet(),
             securityBySsid = security,
-            validated = link.validated && link.connectedSsid != null,
+            validated = link.validated,
             radioOn = radioOn,
             fromOurSuggestion = fromSuggestion,
             authFailure = authFailure,
@@ -405,7 +442,21 @@ class PriorityCoordinator(
         visible: Set<String>,
         fresh: Boolean,
         wifiEnabled: Boolean,
-    ): String = scanSummary(phoneSsid, truckSsid, visible, fresh, wifiEnabled) + " build=$buildLabel"
+        refusal: ScanRefusal? = null,
+        resultsAgeMillis: Long? = null,
+        platformThrottle: Boolean? = null,
+    ): String {
+        val throttle = platformThrottle?.let { " platformThrottle=$it" }.orEmpty()
+        return scanSummary(
+            phoneSsid,
+            truckSsid,
+            visible,
+            fresh,
+            wifiEnabled,
+            refusal,
+            resultsAgeMillis,
+        ) + throttle + " build=$buildLabel"
+    }
 
     private suspend fun logCycle(error: Throwable) {
         val secrets = runCatching {

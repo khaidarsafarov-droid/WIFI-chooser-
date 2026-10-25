@@ -2,6 +2,7 @@ package com.wifipriority.wifi
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
@@ -51,6 +52,13 @@ interface NetworkConnector {
         get() = flowOf(null)
 
     suspend fun applyTarget(target: WifiTarget)
+
+    /**
+     * Re-read the active Wi-Fi network. The default returns the latest [link] value.
+     * The platform connector polls `ConnectivityManager` because a network callback
+     * can miss `onCapabilitiesChanged` after suggestion remove/add.
+     */
+    suspend fun refreshLink(): LinkObservation = link.first()
 
     /**
      * SSIDs from `WifiManager.getNetworkSuggestions()`. Null when this connector

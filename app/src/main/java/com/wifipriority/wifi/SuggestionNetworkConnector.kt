@@ -127,8 +127,14 @@ class SuggestionNetworkConnector(
                 replace(suggestions, disconnectSsids)
             }
             if (report.commit == SuggestionCommit.APPLIED) appliedKey = key else appliedKey = null
+            readActiveLink()
             report
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    override suspend fun refreshLink(): LinkObservation = withContext(Dispatchers.IO) {
+        readActiveLink()
     }
 
     @SuppressLint("MissingPermission")
@@ -217,16 +223,25 @@ class SuggestionNetworkConnector(
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
         val networkCallback = object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+            override fun onAvailable(network: Network) {
+                publish(readActiveLink())
+            }
+
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
+                val active = connectivity.activeNetwork
+                if (active != null && network != active) {
+                    publish(readActiveLink())
+                    return
+                }
                 val info = caps.transportInfo as? WifiInfo
-                val ssid = normalizePlatformSsid(info?.ssid)
+                val ssid = wifiInfoSsid(info)
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                publish(links.onCapabilities(network, ssid, validated))
+                publish(links.onCapabilities(network, ssid, validated, active = true))
             }
 
             override fun onLost(network: Network) {
-                val next = links.onLost(network) ?: return
-                publish(next)
+                publish(readActiveLink())
             }
         }
         callback = networkCallback
@@ -287,6 +302,37 @@ class SuggestionNetworkConnector(
         )
     }
 
+    @SuppressLint("MissingPermission")
+    private fun readActiveLink(): LinkObservation {
+        val observation = try {
+            val active = connectivity.activeNetwork
+            val caps = if (active == null) null else connectivity.getNetworkCapabilities(active)
+            val selected = selectWifiLink(listOfNotNull(wifiView(active, caps)))
+            if (selected == null) {
+                links.onCleared()
+            } else {
+                links.onCapabilities(selected.key, selected.ssid, selected.validated, active = true)
+            }
+        } catch (error: SecurityException) {
+            Log.w(TAG, "active network capabilities unavailable")
+            links.snapshot()
+        }
+        publish(observation)
+        return observation
+    }
+
+    private fun wifiView(network: Network?, caps: NetworkCapabilities?): WifiNetworkView? {
+        if (network == null || caps == null) return null
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
+        val info = caps.transportInfo as? WifiInfo
+        return WifiNetworkView(
+            key = network,
+            ssid = wifiInfoSsid(info),
+            validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+            active = true,
+        )
+    }
+
     private fun publish(observation: LinkObservation) {
         connected.value = observation.connectedSsid
         linkState.value = observation
@@ -303,6 +349,8 @@ enum class SuggestionApproval {
     APPROVED,
     REJECTED,
 }
+
+private fun wifiInfoSsid(info: WifiInfo?): String? = normalizePlatformSsid(info?.ssid)
 
 private fun WifiNetworkSuggestion.safeSsid(): String? {
     val named = wifiSsid

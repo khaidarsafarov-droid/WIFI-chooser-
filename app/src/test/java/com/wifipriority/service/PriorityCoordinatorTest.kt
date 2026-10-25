@@ -13,10 +13,14 @@ import com.wifipriority.mock.InMemoryCredentialStore
 import com.wifipriority.mock.MockScanSource
 import com.wifipriority.mock.MockScenario
 import com.wifipriority.wifi.Clock
+import com.wifipriority.wifi.LinkObservation
+import com.wifipriority.wifi.NetworkConnector
+import com.wifipriority.wifi.PlannedSuggestion
+import com.wifipriority.wifi.PolicyState
+import com.wifipriority.wifi.ScanPolicy
+import com.wifipriority.wifi.ScanRefusal
 import com.wifipriority.wifi.ScanSnapshot
 import com.wifipriority.wifi.ScanSource
-import com.wifipriority.wifi.NetworkConnector
-import com.wifipriority.wifi.PolicyState
 import com.wifipriority.wifi.SuggestionApplyReport
 import com.wifipriority.wifi.SuggestionApproval
 import com.wifipriority.wifi.SuggestionCommit
@@ -234,6 +238,131 @@ class PriorityCoordinatorTest {
         ).run()
         assertEquals(WifiTarget.PHONE, status.value.target)
         assertEquals(setOf(PHONE_SSID), status.value.visibleSsids)
+    }
+
+    @Test
+    fun connectedToPhone_doesNotRemoveTheTruck() = runTest {
+        val credentials = InMemoryCredentialStore(enabledConfig())
+        val events = MemoryEventLog()
+        val connector = object : NetworkConnector {
+            private val connected = MutableStateFlow<String?>(PHONE_SSID)
+            override val connectedSsid: Flow<String?> = connected
+            override val link: Flow<LinkObservation> = MutableStateFlow(
+                LinkObservation(PHONE_SSID, validated = true, fromOurSuggestion = true),
+            )
+            val planned = mutableListOf<List<PlannedSuggestion>>()
+            override suspend fun applyTarget(target: WifiTarget) = Unit
+            override suspend fun registeredSsids(): Set<String> = planned.lastOrNull()?.map { it.ssid }?.toSet().orEmpty()
+            override suspend fun applySuggestions(
+                suggestions: List<PlannedSuggestion>,
+                disconnectSsids: Set<String>,
+                force: Boolean,
+            ): SuggestionApplyReport {
+                planned += suggestions
+                return SuggestionApplyReport(
+                    addStatus = 0,
+                    registeredSsids = suggestions.map { it.ssid }.toSet(),
+                )
+            }
+        }
+        val scans = object : ScanSource {
+            override val scans: Flow<ScanSnapshot> = flow {
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 0L))
+            }
+        }
+        PriorityCoordinator(
+            scans = scans,
+            connector = connector,
+            credentials = credentials,
+            engine = PriorityEngine(FakeClock()),
+            status = MutableStateFlow(PriorityStatus()),
+            eventLog = events,
+        ).run()
+        val text = events.recent.value.joinToString("\n") { "${it.kind} ${it.detail}" }
+        assertFalse(text.contains("FORCE_RETURN_START"))
+        assertTrue(connector.planned.last().any { it.role == WifiTarget.TRUCK })
+        assertTrue(connector.planned.last().any { it.role == WifiTarget.PHONE })
+    }
+
+    @Test
+    fun refusedForTwoMinutes_withOldResults_clearsVisibilityWithoutAPhoneMiss() = runTest {
+        val clock = FakeClock()
+        val credentials = InMemoryCredentialStore(enabledConfig())
+        val events = MemoryEventLog()
+        val status = MutableStateFlow(PriorityStatus())
+        val scans = object : ScanSource {
+            override val scans: Flow<ScanSnapshot> = flow {
+                clock.set(0L)
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 0L))
+                clock.set(ScanPolicy.STALE_AFTER_MILLIS)
+                emit(
+                    ScanSnapshot(
+                        emptySet(),
+                        ScanPolicy.STALE_AFTER_MILLIS,
+                        fresh = false,
+                        refusal = ScanRefusal.START_FAILED,
+                        resultsAgeMillis = ScanPolicy.CACHED_RESULT_MAX_AGE_MILLIS + 5_000,
+                        platformThrottle = false,
+                    ),
+                )
+            }
+        }
+        PriorityCoordinator(
+            scans = scans,
+            connector = FakeNetworkConnector(credentials),
+            credentials = credentials,
+            engine = PriorityEngine(clock),
+            status = status,
+            clock = clock,
+            eventLog = events,
+        ).run()
+        assertEquals(WifiTarget.PHONE, status.value.target)
+        assertEquals(emptySet<String>(), status.value.visibleSsids)
+        val text = events.recent.value.joinToString("\n") { "${it.kind} ${it.detail}" }
+        assertTrue(text.contains("SCAN_STALE"))
+        assertTrue(text.contains("START_FAILED"))
+        assertTrue(text.contains("platformThrottle=false"))
+        assertTrue(text.contains("held"))
+        assertFalse(text.contains("PHONE_ABSENT"))
+    }
+
+    @Test
+    fun youngCachedResults_driveTheDecisionWhenStartScanIsRefused() = runTest {
+        val clock = FakeClock()
+        val credentials = InMemoryCredentialStore(enabledConfig())
+        val events = MemoryEventLog()
+        val status = MutableStateFlow(PriorityStatus())
+        val scans = object : ScanSource {
+            override val scans: Flow<ScanSnapshot> = flow {
+                clock.set(0L)
+                emit(ScanSnapshot(setOf(PHONE_SSID, TRUCK_SSID), 0L))
+                clock.set(45_000L)
+                emit(
+                    ScanSnapshot(
+                        setOf(TRUCK_SSID),
+                        45_000L,
+                        fresh = false,
+                        refusal = ScanRefusal.NOT_UPDATED,
+                        resultsAgeMillis = 5_000L,
+                    ),
+                )
+            }
+        }
+        PriorityCoordinator(
+            scans = scans,
+            connector = FakeNetworkConnector(credentials),
+            credentials = credentials,
+            engine = PriorityEngine(clock),
+            status = status,
+            clock = clock,
+            eventLog = events,
+        ).run()
+        assertEquals(WifiTarget.PHONE, status.value.target)
+        assertEquals(setOf(TRUCK_SSID), status.value.visibleSsids)
+        val text = events.recent.value.joinToString("\n") { "${it.kind} ${it.detail}" }
+        assertTrue(text.contains("cached"))
+        assertTrue(text.contains("NOT_UPDATED"))
+        assertFalse(text.contains("SCAN_STALE"))
     }
 
     @Test

@@ -48,22 +48,26 @@ class WifiScanSource(
             }
             val permitted = hasScanPermissions()
             if (!WifiScanGate.allow(wifiEnabled = true, hasPermissions = permitted, throttle = throttle)) {
-                emit(ScanSnapshot(emptySet(), clock.nowMillis(), wifiEnabled = true, fresh = false))
+                val reason = if (permitted) ScanRefusal.THROTTLE else ScanRefusal.PERMISSION
+                emit(refused(reason))
                 delay(intervalMillis)
                 continue
             }
-            val read = awaitFreshResults()
-            if (read != null) {
-                emit(
+            when (val attempt = awaitFreshResults()) {
+                is ScanAttempt.Fresh -> emit(
                     ScanSnapshot(
-                        visibleSsids = read.ssids,
+                        visibleSsids = attempt.read.ssids,
                         timestampMillis = clock.nowMillis(),
                         wifiEnabled = true,
-                        securityBySsid = read.security,
+                        securityBySsid = attempt.read.security,
                     ),
                 )
-            } else {
-                emit(ScanSnapshot(emptySet(), clock.nowMillis(), wifiEnabled = true, fresh = false))
+                ScanAttempt.StartFailed -> {
+                    throttle.abandonLast()
+                    emit(refused(ScanRefusal.START_FAILED))
+                }
+                ScanAttempt.NotUpdated -> emit(refused(ScanRefusal.NOT_UPDATED))
+                ScanAttempt.TimedOut -> emit(refused(ScanRefusal.TIMEOUT))
             }
             delay(intervalMillis)
         }
@@ -81,29 +85,49 @@ class WifiScanSource(
      * Returns null when the platform refused the scan or the results are stale.
      */
     @SuppressLint("MissingPermission")
-    private suspend fun awaitFreshResults(): ScanRead? {
-        val fresh = withTimeoutOrNull(scanTimeoutMillis) {
+    private suspend fun awaitFreshResults(): ScanAttempt {
+        val attempt = withTimeoutOrNull(scanTimeoutMillis) {
             suspendCancellableCoroutine { cont ->
                 lateinit var receiver: BroadcastReceiver
-                fun finish(read: ScanRead?) {
+                fun finish(value: ScanAttempt) {
                     unregister(receiver)
-                    if (cont.isActive) cont.resume(read)
+                    if (cont.isActive) cont.resume(value)
                 }
                 receiver = object : BroadcastReceiver() {
                     override fun onReceive(ctx: Context, intent: Intent) {
                         if (intent.action != WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) return
                         val updated = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false)
-                        finish(if (updated) readScan() else null)
+                        finish(if (updated) ScanAttempt.Fresh(readScan()) else ScanAttempt.NotUpdated)
                     }
                 }
                 val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
                 appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
                 cont.invokeOnCancellation { unregister(receiver) }
                 val started = startScan()
-                if (!started) finish(null)
+                if (!started) {
+                    Log.w(TAG, "startScan returned false")
+                    finish(ScanAttempt.StartFailed)
+                }
             }
         }
-        return fresh
+        return attempt ?: ScanAttempt.TimedOut
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun refused(reason: ScanRefusal): ScanSnapshot {
+        Log.w(TAG, "scan refused: $reason")
+        val cached = readCached()
+        val usable = cachedResultsUsable(cached.ageMillis)
+        return ScanSnapshot(
+            visibleSsids = if (usable) cached.ssids else emptySet(),
+            timestampMillis = clock.nowMillis(),
+            wifiEnabled = true,
+            securityBySsid = if (usable) cached.security else emptyMap(),
+            fresh = false,
+            refusal = reason,
+            resultsAgeMillis = cached.ageMillis,
+            platformThrottle = runCatching { wifiManager.isScanThrottleEnabled }.getOrNull(),
+        )
     }
 
     /**
@@ -123,19 +147,25 @@ class WifiScanSource(
     }
 
     @SuppressLint("MissingPermission")
-    private fun readScan(): ScanRead {
+    private fun readScan(): ScanRead = readCached().let { ScanRead(it.ssids, it.security) }
+
+    @SuppressLint("MissingPermission")
+    private fun readCached(): CachedScan {
         return try {
             val security = linkedMapOf<String, WifiSecurity>()
             val ssids = linkedSetOf<String>()
+            val timestamps = ArrayList<Long>()
             for (result in wifiManager.scanResults) {
+                timestamps += result.timestamp
                 val ssid = result.visibleSsid() ?: continue
                 ssids += ssid
                 security[ssid] = mergeSecurity(security[ssid], securityFromCapabilities(result.capabilities))
             }
-            ScanRead(ssids, security)
+            val age = newestScanAgeMillis(android.os.SystemClock.elapsedRealtime(), timestamps)
+            CachedScan(ssids, security, age)
         } catch (error: SecurityException) {
             Log.w(TAG, "getScanResults was rejected")
-            ScanRead(emptySet(), emptyMap())
+            CachedScan(emptySet(), emptyMap(), null)
         }
     }
 
@@ -163,6 +193,19 @@ private data class ScanRead(
     val ssids: Set<String>,
     val security: Map<String, WifiSecurity>,
 )
+
+private data class CachedScan(
+    val ssids: Set<String>,
+    val security: Map<String, WifiSecurity>,
+    val ageMillis: Long?,
+)
+
+private sealed class ScanAttempt {
+    data class Fresh(val read: ScanRead) : ScanAttempt()
+    data object StartFailed : ScanAttempt()
+    data object NotUpdated : ScanAttempt()
+    data object TimedOut : ScanAttempt()
+}
 
 private fun ScanResult.visibleSsid(): String? {
     val wifiSsid = wifiSsid ?: return null

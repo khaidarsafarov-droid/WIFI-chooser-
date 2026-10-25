@@ -15,4 +15,13 @@ object ScanPolicy {
 
     /** Phone must be missing this many scans in a row before falling back to the truck. */
     const val PHONE_MISSES_BEFORE_TRUCK: Int = 2
+
+    /**
+     * `getScanResults()` newer than this can still drive a decision when `startScan`
+     * was refused. Older than this, the sighting is stale.
+     */
+    const val CACHED_RESULT_MAX_AGE_MILLIS: Long = 2 * 60 * 1000L
+
+    /** How long refused scans may keep the last fresh sighting before it is dropped. */
+    const val STALE_AFTER_MILLIS: Long = 2 * 60 * 1000L
 }
